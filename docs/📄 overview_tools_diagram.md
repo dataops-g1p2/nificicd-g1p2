@@ -1,98 +1,75 @@
-Tools & Environments Diagram Description (English Version)
+# System Environments & Tools Overview
 
+This document provides a clear, professional overview of the environments, tools, and technologies used across the project lifecycle.  
+It also includes the architecture diagram illustrating how development, CI/CD, and deployment interact.
 
+---
 
+## 1. Environments Overview
 
-This diagram illustrates the full lifecycle of how tools interact across the Development, Testing (UAT), and Production environments for the NiFi-based data pipeline project.
+The project uses three main environments:
 
-1. GitHub – Source Control & CI/CD Trigger
+### **1. Development Environment**
+- Used by developers to build, update, and test features locally.
+- Components:
+  - Developer machine (Windows, Linux, or macOS)
+  - Local Docker containers (NiFi, NiFi Registry, PostgreSQL)
+  - Local code editor (VS Code / IntelliJ)
+  - Git for version control
 
-GitHub serves as the central platform where:
+---
 
-flow definitions exported from NiFi are versioned,
+### **2. Integration / Test Environment**
+- Managed through CI/CD.
+- Used to automatically execute:
+  - Build validation
+  - Code quality checks
+  - Unit and integration tests
+  - Deployment of NiFi flows to a test NiFi instance
 
-infrastructure and deployment configuration files are stored,
+Tools involved:
+- GitHub Actions (CI)
+- GitHub Container Registry
+- NiFi Registry (Test)
+- Azure resource group (Test)
 
-CI/CD workflows are triggered automatically.
+---
 
-Developers push changes to GitHub, which initiates automated build and deployment jobs.
+### **3. Production Environment**
+- Final operational environment.
+- Ensures high availability, security, and performance.
 
-2. NiFi Registry – Flow Versioning System
+Components:
+- Azure Virtual Machine (for NiFi)
+- Azure Container Registry
+- Azure Container Instances (optional deployment model)
+- Locked-down NiFi Registry (restricted access)
+- Logging, monitoring, alerts
 
-NiFi Registry stores and manages:
+---
 
-version history of NiFi flows,
+## 2. Tools Used
 
-metadata about flow changes,
+| Tool / Service | Purpose |
+|----------------|---------|
+| **GitHub** | Repository hosting, issue management, CI/CD |
+| **GitHub Actions** | Pipeline automation (build, test, deploy) |
+| **Docker** | Containerization of NiFi and NiFi Registry |
+| **Azure VM** | Hosting NiFi in production |
+| **Azure Container Registry (ACR)** | Stores Docker images |
+| **Azure Container Instances (ACI)** | Optional lightweight deployment without VM |
+| **NiFi Registry** | Versioning of dataflows |
+| **NiFi** | Data pipeline orchestration |
+| **PostgreSQL** | Metadata & flow storage |
+| **Markdown + GitHub Pages (optional)** | Project documentation |
 
-synchronization between NiFi environments.
+---
 
-It acts as the version-controlled backend for flow management.
+## 3. Architecture Diagram
 
-3. Docker – Build & Packaging Layer
+Below is the architecture diagram representing the global flow between Development, CI/CD, and Production.
 
-Docker is used to:
+> ⚠️ Make sure the file below is committed to your repository in the following path:  
+> `docs/assets/environnement_diagram.png`
 
-build container images containing NiFi and NiFi Registry,
-
-package flows, configurations, and scripts,
-
-prepare artifacts for deployment.
-
-These images become the basis for consistent deployments across environments.
-
-4. Azure Container Registry (ACR) – Image Repository
-
-ACR hosts and stores:
-
-NiFi Docker images,
-
-NiFi Registry images,
-
-any custom processor bundles or required dependencies.
-
-All downstream environments pull images from ACR to ensure consistency.
-
-5. Testing / UAT Environment
-
-The UAT environment retrieves Docker images from ACR and is used for:
-
-validating functional behavior of flows,
-
-testing integration between components,
-
-ensuring stability before going live.
-
-6. Production Environment
-
-The Production environment pulls the same validated image from ACR. It provides:
-
-secure deployment of NiFi,
-
-stable execution of approved flows,
-
-high reliability and controlled updates.
-
-7. NiFi Runtime – Flow Execution Engine
-
-Apache NiFi runs inside Docker containers and:
-
-executes the data flows,
-
-communicates with NiFi Registry to retrieve versioned flows,
-
-processes real-time or batch data depending on flow design.
-
-🔄 Overall Workflow Summary
-
-Developer updates flow or code → pushes to GitHub
-
-GitHub CI pipeline builds Docker images
-
-Docker images pushed to Azure Container Registry
-
-Testing environment pulls image → validation
-
-Production environment pulls validated image → final deployment
-
-This diagram represents a fully automated CI/CD workflow enabling consistent, secure, and scalable NiFi deployments across cloud environments.
+![Environment Architecture Diagram](assets/environnement_diagram.png)
