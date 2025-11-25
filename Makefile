@@ -3,7 +3,7 @@ MAKEFLAGS += --no-print-directory
 
 # Environment configuration
 ENV ?= local
-PROJECT_NAME := nifi_cicd_projet     # Change this to your desired project name
+PROJECT_NAME := nifi_cicd_project     # Change this to your desired project name
 DOCKER := docker compose
 TF_MAKEFILE := azure-vm-terraform/Makefile
 
