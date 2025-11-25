@@ -41,7 +41,7 @@ Thus, a Bucket contains multiple Flows, and each Flow may have multiple Versions
 
 ## CI/CD Pipeline Overview
 
-![Environment Architecture Diagram](../assets/proomotion_flows_env.png)
+![Environment Architecture Diagram](assets/proomotion_flows_env.png)
 
 ### How It Works
 
@@ -50,5 +50,6 @@ Thus, a Bucket contains multiple Flows, and each Flow may have multiple Versions
 - The CI/CD pipeline automates deployment and validation, ensuring a **repeatable, safe, and traceable path to production**.  
 
 This setup provides **reliability, traceability, and automation**, fully addressing the critical needs of production environments.
+
 
 
