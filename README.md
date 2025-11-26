@@ -11,7 +11,7 @@
 ## 🏗️ Three-Environment Architecture
 
 
-![Environment Architecture Diagram](assets/environnement_diagram2.png)
+![Environment Architecture Diagram](docs/assets/environnement_diagram2.png)
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
