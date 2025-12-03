@@ -86,6 +86,8 @@ services:
       - nifi_logs:/opt/nifi/nifi-current/logs
       - ./flows:/opt/nifi/nifi-current/flows
       - ./config/bootstrap-additions.conf:/tmp/bootstrap-additions.conf:ro
+      - ./data/input:/data/input
+      - ./data/output:/data/output
     networks:
       - nifi_network
     depends_on:
