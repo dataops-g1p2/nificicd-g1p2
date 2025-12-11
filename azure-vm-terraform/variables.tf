@@ -1,55 +1,48 @@
-variable "azure_subscription_id" {
+variable "environment" {
+  description = "Environment name"
   type        = string
-  description = "Azure subscription ID"
-  sensitive   = true
 }
 
-variable "azure_location" {
+variable "location" {
+  description = "Azure region"
   type        = string
-  description = "Azure region for resources"
-  default     = "francecentral"
+  default     = "eastus"
 }
 
 variable "resource_group_name" {
+  description = "Resource group name"
   type        = string
-  description = "Name of the resource group"
-  default     = "rg-nifi_cicd_project-dev"
 }
 
-variable "environment" {
+variable "vm_name" {
+  description = "Virtual machine name"
   type        = string
-  description = "Environment name (fixed to development)"
-  default     = "development"
 }
 
 variable "vm_size" {
+  description = "Virtual machine size"
   type        = string
-  description = "Azure VM size"
-  default     = "Standard_B2s_v2"  # 2 vCPUs, 8 GB RAM
+  default     = "Standard_D2s_v3"
 }
 
-variable "ssh_public_key_path" {
+variable "admin_username" {
+  description = "Admin username for VM"
   type        = string
-  description = "Path to SSH public key file"
-  default     = "~/.ssh/id_rsa.pub"
+  default     = "azureuser"
 }
 
-variable "nifi_username" {
+variable "ssh_public_key" {
+  description = "SSH public key"
   type        = string
-  description = "NiFi admin username"
-  default     = "admin"
 }
 
-variable "nifi_password" {
+variable "prefix" {
+  description = "Prefix for resource names"
   type        = string
-  description = "NiFi admin password"
-  sensitive   = true
-  default     = "49e9eda8ef1c33c39f6dc418535751a8"
+  default     = "nifi"
 }
 
-variable "nifi_sensitive_key" {
+variable "azure_subscription_id" {
+  description = "Azure subscription ID"
   type        = string
-  description = "NiFi sensitive properties key"
-  sensitive   = true
-  default     = "1163ebb9600df80eb74f30ca"
 }

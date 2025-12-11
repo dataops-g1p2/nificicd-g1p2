@@ -1,0 +1,719 @@
+name: Provision Infrastructure
+
+on:
+  workflow_dispatch:
+    inputs:
+      environments:
+        description: 'Environment(s) to provision (comma-separated: development,staging,production)'
+        required: true
+        type: string
+        default: 'development'
+      force_recreate:
+        description: 'Force recreate if infrastructure exists?'
+        required: false
+        type: boolean
+        default: false
+      wait_time:
+        description: 'Wait time between environments (seconds)'
+        required: false
+        type: number
+        default: 60
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  determine-environments:
+    name: Determine Target Environments
+    runs-on: ubuntu-22.04
+    outputs:
+      environments: ${{ steps.set_envs.outputs.environments }}
+      environment_list: ${{ steps.set_envs.outputs.environment_list }}
+      is_multiple: ${{ steps.set_envs.outputs.is_multiple }}
+    steps:
+      - name: Parse and Validate Environments
+        id: set_envs
+        run: |
+          INPUT="${{ github.event.inputs.environments }}"
+          INPUT=$(echo "$INPUT" | tr -d ' ' | tr '[:upper:]' '[:lower:]')
+          IFS=',' read -ra ENV_ARRAY <<< "$INPUT"
+          
+          VALID_ENVS=()
+          INVALID_ENVS=()
+          
+          for env in "${ENV_ARRAY[@]}"; do
+            case "$env" in
+              development|staging|production)
+                if [[ ! " ${VALID_ENVS[@]} " =~ " ${env} " ]]; then
+                  VALID_ENVS+=("$env")
+                fi
+                ;;
+              *)
+                INVALID_ENVS+=("$env")
+                ;;
+            esac
+          done
+          
+          if [ ${#INVALID_ENVS[@]} -gt 0 ]; then
+            echo "❌ Invalid environment(s): ${INVALID_ENVS[*]}"
+            echo "Valid options: development, staging, production"
+            exit 1
+          fi
+          
+          if [ ${#VALID_ENVS[@]} -eq 0 ]; then
+            echo "❌ No valid environments specified"
+            exit 1
+          fi
+          
+          JSON_ARRAY="["
+          for i in "${!VALID_ENVS[@]}"; do
+            [ $i -gt 0 ] && JSON_ARRAY+=","
+            JSON_ARRAY+="\"${VALID_ENVS[$i]}\""
+          done
+          JSON_ARRAY+="]"
+          
+          ENV_LIST=$(IFS=','; echo "${VALID_ENVS[*]}")
+          
+          if [ ${#VALID_ENVS[@]} -gt 1 ]; then
+            IS_MULTIPLE="true"
+            echo "🌍 Provisioning ${#VALID_ENVS[@]} environments: $ENV_LIST"
+          else
+            IS_MULTIPLE="false"
+            echo "🎯 Provisioning: ${VALID_ENVS[0]}"
+          fi
+          
+          echo "environments=$JSON_ARRAY" >> $GITHUB_OUTPUT
+          echo "environment_list=$ENV_LIST" >> $GITHUB_OUTPUT
+          echo "is_multiple=$IS_MULTIPLE" >> $GITHUB_OUTPUT
+          
+          echo ""
+          echo "Validated environments:"
+          for env in "${VALID_ENVS[@]}"; do
+            echo "  ✓ $env"
+          done
+
+  check-infrastructure:
+    name: Check Infrastructure (${{ matrix.environment }})
+    needs: determine-environments
+    runs-on: ubuntu-22.04
+    strategy:
+      matrix:
+        environment: ${{ fromJson(needs.determine-environments.outputs.environments) }}
+      fail-fast: false
+    environment: ${{ matrix.environment }}
+    outputs:
+      infra_exists_dev: ${{ steps.check_infra.outputs.exists_dev }}
+      infra_exists_staging: ${{ steps.check_infra.outputs.exists_staging }}
+      infra_exists_prod: ${{ steps.check_infra.outputs.exists_prod }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+        
+      - name: Set Environment Variables
+        id: set_env
+        run: |
+          ENV="${{ matrix.environment }}"
+          case $ENV in
+            development)
+              echo "rg=rg-nifi-cicd-dev" >> $GITHUB_OUTPUT
+              echo "vm_name=vm-nifi-development" >> $GITHUB_OUTPUT
+              ;;
+            staging)
+              echo "rg=rg-nifi-cicd-staging" >> $GITHUB_OUTPUT
+              echo "vm_name=vm-nifi-staging" >> $GITHUB_OUTPUT
+              ;;
+            production)
+              echo "rg=rg-nifi-cicd-prod" >> $GITHUB_OUTPUT
+              echo "vm_name=vm-nifi-production" >> $GITHUB_OUTPUT
+              ;;
+          esac
+          
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: |
+            {
+              "clientId": "${{ secrets.ARM_CLIENT_ID }}",
+              "clientSecret": "${{ secrets.ARM_CLIENT_SECRET }}",
+              "subscriptionId": "${{ secrets.ARM_SUBSCRIPTION_ID }}",
+              "tenantId": "${{ secrets.ARM_TENANT_ID }}"
+            }
+            
+      - name: Check if Infrastructure Exists
+        id: check_infra
+        run: |
+          RG="${{ steps.set_env.outputs.rg }}"
+          VM_NAME="${{ steps.set_env.outputs.vm_name }}"
+          ENV="${{ matrix.environment }}"
+          
+          echo "Checking $ENV infrastructure..."
+          
+          EXISTS="false"
+          VM_IP=""
+          
+          if az group exists --name $RG | grep -q "true"; then
+            echo "✓ Resource group exists"
+            
+            if az vm show --resource-group $RG --name $VM_NAME 2>/dev/null; then
+              echo "✓ VM exists"
+              VM_IP=$(az vm show -d --resource-group $RG --name $VM_NAME --query publicIps -o tsv)
+              echo "✓ VM IP: $VM_IP"
+              EXISTS="true"
+              
+              if [ "${{ github.event.inputs.force_recreate }}" = "true" ]; then
+                echo ""
+                echo "⚠️ FORCE RECREATE REQUESTED"
+              fi
+            fi
+          fi
+          
+          echo "exists_${ENV}=${EXISTS}" >> $GITHUB_OUTPUT
+          echo "exists=${EXISTS}" >> $GITHUB_OUTPUT
+
+  destroy-existing:
+    name: Destroy Existing (${{ matrix.environment }})
+    needs: [determine-environments, check-infrastructure]
+    if: github.event.inputs.force_recreate == 'true'
+    runs-on: ubuntu-22.04
+    strategy:
+      matrix:
+        environment: ${{ fromJson(needs.determine-environments.outputs.environments) }}
+      fail-fast: false
+    environment: ${{ matrix.environment }}
+    steps:
+      - name: Get Infrastructure Info
+        id: get_info
+        run: |
+          ENV="${{ matrix.environment }}"
+          case $ENV in
+            development)
+              echo "rg=rg-nifi-cicd-dev" >> $GITHUB_OUTPUT
+              ;;
+            staging)
+              echo "rg=rg-nifi-cicd-staging" >> $GITHUB_OUTPUT
+              ;;
+            production)
+              echo "rg=rg-nifi-cicd-prod" >> $GITHUB_OUTPUT
+              ;;
+          esac
+      
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: |
+            {
+              "clientId": "${{ secrets.ARM_CLIENT_ID }}",
+              "clientSecret": "${{ secrets.ARM_CLIENT_SECRET }}",
+              "subscriptionId": "${{ secrets.ARM_SUBSCRIPTION_ID }}",
+              "tenantId": "${{ secrets.ARM_TENANT_ID }}"
+            }
+            
+      - name: Delete Resource Group
+        run: |
+          RG="${{ steps.get_info.outputs.rg }}"
+          
+          if az group exists --name $RG | grep -q "true"; then
+            echo "Deleting resource group: $RG"
+            az group delete --name $RG --yes --no-wait
+            
+            for i in {1..30}; do
+              if ! az group exists --name $RG | grep -q "true"; then
+                echo "✅ Resource group deleted"
+                exit 0
+              fi
+              echo "Waiting... ($i/30)"
+              sleep 10
+            done
+            echo "⚠️ Deletion in progress"
+          else
+            echo "ℹ️ Resource group does not exist"
+          fi
+
+  setup-secrets:
+    name: Setup Secrets (${{ matrix.environment }})
+    needs: [determine-environments, check-infrastructure, destroy-existing]
+    if: always() && needs.determine-environments.result == 'success'
+    runs-on: ubuntu-22.04
+    strategy:
+      matrix:
+        environment: ${{ fromJson(needs.determine-environments.outputs.environments) }}
+      fail-fast: false
+    environment: ${{ matrix.environment }}
+    steps:     
+      - name: Checkout code
+        uses: actions/checkout@v5
+        
+      - name: Check and Generate SSH Keys
+        id: ssh_keys
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: |
+          ENV="${{ matrix.environment }}"
+          echo "Checking SSH keys for $ENV..."
+          
+          if [ -n "${{ secrets.SSH_PUBLIC_KEY }}" ] && [ -n "${{ secrets.SSH_PRIVATE_KEY }}" ]; then
+            KEY="${{ secrets.SSH_PUBLIC_KEY }}"
+            if [[ "$KEY" =~ ^(ssh-rsa|ssh-ed25519|ecdsa-sha2-nistp256) ]]; then
+              echo "✅ SSH keys configured"
+              echo "generated=false" >> $GITHUB_OUTPUT
+              exit 0
+            fi
+          fi
+          
+          echo "🔑 Generating SSH keys for $ENV..."
+          
+          if [ -z "$GH_TOKEN" ]; then
+            echo "❌ GH_TOKEN required"
+            exit 1
+          fi
+          
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          ssh-keygen -t rsa -b 4096 -f ~/.ssh/nifi_deploy_key_${ENV} -N "" -C "github-actions-nifi-${ENV}"
+          
+          PUBLIC_KEY=$(cat ~/.ssh/nifi_deploy_key_${ENV}.pub)
+          PRIVATE_KEY=$(cat ~/.ssh/nifi_deploy_key_${ENV})
+          
+          echo "$PUBLIC_KEY" | gh secret set SSH_PUBLIC_KEY --env $ENV
+          echo "$PRIVATE_KEY" | gh secret set SSH_PRIVATE_KEY --env $ENV
+          
+          echo "✅ SSH keys saved"
+          echo "generated=true" >> $GITHUB_OUTPUT
+
+      - name: Setup Environment Secrets
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: |
+          ENV="${{ matrix.environment }}"
+          echo "Setting up $ENV secrets..."
+          
+          set_secret() {
+            echo "$2" | gh secret set "$1" --env $ENV 2>/dev/null
+            echo "✓ $1"
+          }
+          
+          set_secret "VM_USERNAME" "azureuser"
+          set_secret "VM_SSH_PORT" "22"
+          set_secret "NIFI_USERNAME" "admin"
+          
+          if [ -z "${{ secrets.NIFI_PASSWORD }}" ]; then
+            set_secret "NIFI_PASSWORD" "$(openssl rand -hex 16)"
+            echo "⚠️ NIFI_PASSWORD auto-generated"
+          fi
+          
+          if [ -z "${{ secrets.NIFI_SENSITIVE_KEY }}" ]; then
+            set_secret "NIFI_SENSITIVE_KEY" "$(openssl rand -hex 12)"
+          fi
+          
+          set_secret "NIFI_HTTPS_PORT" "8443"
+          set_secret "NIFI_REGISTRY_PORT" "18080"
+          set_secret "NIFI_WEB_HTTPS_HOST" "0.0.0.0"
+          set_secret "NIFI_ELECTION_MAX_WAIT" "5 min"
+          set_secret "NIFI_REGISTRY_HOST" "0.0.0.0"
+          
+          echo "✅ All secrets configured"
+
+  provision-development:
+    name: Provision VM (development)
+    needs: [determine-environments, check-infrastructure, setup-secrets]
+    if: |
+      always() &&
+      needs.determine-environments.result == 'success' &&
+      needs.setup-secrets.result == 'success' &&
+      contains(fromJson(needs.determine-environments.outputs.environments), 'development')
+    runs-on: ubuntu-22.04
+    environment: development
+    outputs:
+      success: ${{ steps.provision_status.outputs.success }}
+      vm_ip: ${{ steps.get_ip.outputs.ip }}
+    steps:      
+      - name: Checkout code
+        uses: actions/checkout@v5
+        
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: |
+            {
+              "clientId": "${{ secrets.ARM_CLIENT_ID }}",
+              "clientSecret": "${{ secrets.ARM_CLIENT_SECRET }}",
+              "subscriptionId": "${{ secrets.ARM_SUBSCRIPTION_ID }}",
+              "tenantId": "${{ secrets.ARM_TENANT_ID }}"
+            }
+            
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "~> 1.5"
+          terraform_wrapper: false
+          
+      - name: Terraform Init
+        working-directory: ./azure-vm-terraform
+        env:
+          ARM_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
+          ARM_CLIENT_SECRET: ${{ secrets.ARM_CLIENT_SECRET }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
+          ARM_TENANT_ID: ${{ secrets.ARM_TENANT_ID }}
+        run: terraform init -input=false
+        
+      - name: Terraform Validate
+        working-directory: ./azure-vm-terraform
+        run: terraform validate
+        
+      - name: Terraform Plan
+        working-directory: ./azure-vm-terraform
+        env:
+          ARM_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
+          ARM_CLIENT_SECRET: ${{ secrets.ARM_CLIENT_SECRET }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
+          ARM_TENANT_ID: ${{ secrets.ARM_TENANT_ID }}
+          TF_VAR_environment: development
+          TF_VAR_ssh_public_key: ${{ secrets.SSH_PUBLIC_KEY }}
+          TF_VAR_azure_subscription_id: ${{ secrets.ARM_SUBSCRIPTION_ID }}
+        run: terraform plan -var-file="development.tfvars" -out=tfplan -input=false
+        
+      - name: Terraform Apply
+        working-directory: ./azure-vm-terraform
+        env:
+          ARM_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
+          ARM_CLIENT_SECRET: ${{ secrets.ARM_CLIENT_SECRET }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
+          ARM_TENANT_ID: ${{ secrets.ARM_TENANT_ID }}
+          TF_VAR_environment: development
+          TF_VAR_ssh_public_key: ${{ secrets.SSH_PUBLIC_KEY }}
+          TF_VAR_azure_subscription_id: ${{ secrets.ARM_SUBSCRIPTION_ID }}
+        run: terraform apply -auto-approve tfplan
+        
+      - name: Get VM IP Address
+        id: get_ip
+        working-directory: ./azure-vm-terraform
+        env:
+          ARM_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
+          ARM_CLIENT_SECRET: ${{ secrets.ARM_CLIENT_SECRET }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
+          ARM_TENANT_ID: ${{ secrets.ARM_TENANT_ID }}
+        run: |
+          VM_IP=$(terraform output -raw vm_public_ip)
+          echo "ip=$VM_IP" >> $GITHUB_OUTPUT
+          echo "✅ VM Public IP: $VM_IP"
+          
+      - name: Wait for VM
+        run: |
+          echo "Waiting for VM initialization..."
+          sleep 45
+          
+      - name: Update IP Secrets
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          ENV="development"
+          VM_IP="${{ steps.get_ip.outputs.ip }}"
+          
+          echo "Updating secrets for $ENV: $VM_IP"
+          
+          if [ -z "$GH_TOKEN" ]; then
+            echo "❌ GH_TOKEN not set"
+            exit 1
+          fi
+          
+          if ! gh auth status 2>&1 | grep -q "Logged in"; then
+            echo "❌ GitHub CLI auth failed"
+            exit 1
+          fi
+          
+          echo "$VM_IP" | gh secret set PUBLIC_IP --env $ENV --repo "$GITHUB_REPOSITORY"
+          echo "$VM_IP" | gh secret set VM_PUBLIC_IP --env $ENV --repo "$GITHUB_REPOSITORY"
+          echo "$VM_IP:8443" | gh secret set NIFI_WEB_PROXY_HOST --env $ENV --repo "$GITHUB_REPOSITORY"
+          echo "https://$VM_IP:8443" | gh secret set NIFI_URL --env $ENV --repo "$GITHUB_REPOSITORY"
+          echo "http://$VM_IP:18080" | gh secret set REGISTRY_URL --env $ENV --repo "$GITHUB_REPOSITORY"
+          
+          echo "✅ Secrets updated"
+      
+      - name: Set Status
+        id: provision_status
+        if: always()
+        run: |
+          if [ "${{ job.status }}" = "success" ]; then
+            echo "success=true" >> $GITHUB_OUTPUT
+            echo "✅ Development provisioned"
+          else
+            echo "success=false" >> $GITHUB_OUTPUT
+            echo "❌ Development failed"
+          fi
+
+  wait-after-development:
+    name: Wait After Development
+    needs: [determine-environments, provision-development]
+    if: |
+      always() &&
+      needs.provision-development.result == 'success' &&
+      needs.determine-environments.outputs.is_multiple == 'true'
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Wait
+        run: |
+          WAIT_TIME="${{ github.event.inputs.wait_time }}"
+          echo "⏳ Waiting ${WAIT_TIME}s..."
+          sleep $WAIT_TIME
+
+  provision-staging:
+    name: Provision VM (staging)
+    needs: [determine-environments, check-infrastructure, setup-secrets, wait-after-development]
+    if: |
+      always() &&
+      needs.determine-environments.result == 'success' &&
+      needs.setup-secrets.result == 'success' &&
+      contains(fromJson(needs.determine-environments.outputs.environments), 'staging') &&
+      (needs.wait-after-development.result == 'success' || needs.wait-after-development.result == 'skipped')
+    runs-on: ubuntu-22.04
+    environment: staging
+    outputs:
+      success: ${{ steps.provision_status.outputs.success }}
+      vm_ip: ${{ steps.get_ip.outputs.ip }}
+    steps:      
+      - name: Checkout code
+        uses: actions/checkout@v5
+        
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: |
+            {
+              "clientId": "${{ secrets.ARM_CLIENT_ID }}",
+              "clientSecret": "${{ secrets.ARM_CLIENT_SECRET }}",
+              "subscriptionId": "${{ secrets.ARM_SUBSCRIPTION_ID }}",
+              "tenantId": "${{ secrets.ARM_TENANT_ID }}"
+            }
+            
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "~> 1.5"
+          terraform_wrapper: false
+          
+      - name: Terraform Init
+        working-directory: ./azure-vm-terraform
+        env:
+          ARM_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
+          ARM_CLIENT_SECRET: ${{ secrets.ARM_CLIENT_SECRET }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
+          ARM_TENANT_ID: ${{ secrets.ARM_TENANT_ID }}
+        run: terraform init -input=false
+        
+      - name: Terraform Validate
+        working-directory: ./azure-vm-terraform
+        run: terraform validate
+        
+      - name: Terraform Plan
+        working-directory: ./azure-vm-terraform
+        env:
+          ARM_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
+          ARM_CLIENT_SECRET: ${{ secrets.ARM_CLIENT_SECRET }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
+          ARM_TENANT_ID: ${{ secrets.ARM_TENANT_ID }}
+          TF_VAR_environment: staging
+          TF_VAR_ssh_public_key: ${{ secrets.SSH_PUBLIC_KEY }}
+          TF_VAR_azure_subscription_id: ${{ secrets.ARM_SUBSCRIPTION_ID }}
+        run: terraform plan -var-file="staging.tfvars" -out=tfplan -input=false
+        
+      - name: Terraform Apply
+        working-directory: ./azure-vm-terraform
+        env:
+          ARM_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
+          ARM_CLIENT_SECRET: ${{ secrets.ARM_CLIENT_SECRET }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
+          ARM_TENANT_ID: ${{ secrets.ARM_TENANT_ID }}
+          TF_VAR_environment: staging
+          TF_VAR_ssh_public_key: ${{ secrets.SSH_PUBLIC_KEY }}
+          TF_VAR_azure_subscription_id: ${{ secrets.ARM_SUBSCRIPTION_ID }}
+        run: terraform apply -auto-approve tfplan
+        
+      - name: Get VM IP
+        id: get_ip
+        working-directory: ./azure-vm-terraform
+        env:
+          ARM_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
+          ARM_CLIENT_SECRET: ${{ secrets.ARM_CLIENT_SECRET }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
+          ARM_TENANT_ID: ${{ secrets.ARM_TENANT_ID }}
+        run: |
+          VM_IP=$(terraform output -raw vm_public_ip)
+          echo "ip=$VM_IP" >> $GITHUB_OUTPUT
+          echo "✅ VM Public IP: $VM_IP"
+          
+      - name: Wait for VM
+        run: |
+          echo "Waiting for VM initialization..."
+          sleep 45
+          
+      - name: Update IP Secrets
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: |
+          ENV="staging"
+          VM_IP="${{ steps.get_ip.outputs.ip }}"
+          
+          echo "$VM_IP" | gh secret set PUBLIC_IP --env $ENV
+          echo "$VM_IP" | gh secret set VM_PUBLIC_IP --env $ENV
+          echo "$VM_IP:8443" | gh secret set NIFI_WEB_PROXY_HOST --env $ENV
+          echo "https://$VM_IP:8443" | gh secret set NIFI_URL --env $ENV
+          echo "http://$VM_IP:18080" | gh secret set REGISTRY_URL --env $ENV
+          
+          echo "✅ Secrets updated"
+      
+      - name: Set Status
+        id: provision_status
+        if: always()
+        run: |
+          if [ "${{ job.status }}" = "success" ]; then
+            echo "success=true" >> $GITHUB_OUTPUT
+            echo "✅ Staging provisioned"
+          else
+            echo "success=false" >> $GITHUB_OUTPUT
+            echo "❌ Staging failed"
+          fi
+
+  wait-after-staging:
+    name: Wait After Staging
+    needs: [determine-environments, provision-staging]
+    if: |
+      always() &&
+      needs.provision-staging.result == 'success' &&
+      needs.determine-environments.outputs.is_multiple == 'true'
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Wait
+        run: |
+          WAIT_TIME="${{ github.event.inputs.wait_time }}"
+          echo "⏳ Waiting ${WAIT_TIME}s..."
+          sleep $WAIT_TIME
+
+  provision-production:
+    name: Provision VM (production)
+    needs: [determine-environments, check-infrastructure, setup-secrets, wait-after-staging]
+    if: |
+      always() &&
+      needs.determine-environments.result == 'success' &&
+      needs.setup-secrets.result == 'success' &&
+      contains(fromJson(needs.determine-environments.outputs.environments), 'production') &&
+      (needs.wait-after-staging.result == 'success' || needs.wait-after-staging.result == 'skipped')
+    runs-on: ubuntu-22.04
+    environment: production
+    outputs:
+      success: ${{ steps.provision_status.outputs.success }}
+      vm_ip: ${{ steps.get_ip.outputs.ip }}
+    steps:      
+      - name: Checkout code
+        uses: actions/checkout@v5
+        
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: |
+            {
+              "clientId": "${{ secrets.ARM_CLIENT_ID }}",
+              "clientSecret": "${{ secrets.ARM_CLIENT_SECRET }}",
+              "subscriptionId": "${{ secrets.ARM_SUBSCRIPTION_ID }}",
+              "tenantId": "${{ secrets.ARM_TENANT_ID }}"
+            }
+            
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "~> 1.5"
+          terraform_wrapper: false
+          
+      - name: Terraform Init
+        working-directory: ./azure-vm-terraform
+        env:
+          ARM_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
+          ARM_CLIENT_SECRET: ${{ secrets.ARM_CLIENT_SECRET }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
+          ARM_TENANT_ID: ${{ secrets.ARM_TENANT_ID }}
+        run: terraform init -input=false
+        
+      - name: Terraform Validate
+        working-directory: ./azure-vm-terraform
+        run: terraform validate
+        
+      - name: Terraform Plan
+        working-directory: ./azure-vm-terraform
+        env:
+          ARM_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
+          ARM_CLIENT_SECRET: ${{ secrets.ARM_CLIENT_SECRET }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
+          ARM_TENANT_ID: ${{ secrets.ARM_TENANT_ID }}
+          TF_VAR_environment: production
+          TF_VAR_ssh_public_key: ${{ secrets.SSH_PUBLIC_KEY }}
+          TF_VAR_azure_subscription_id: ${{ secrets.ARM_SUBSCRIPTION_ID }}
+        run: terraform plan -var-file="production.tfvars" -out=tfplan -input=false
+        
+      - name: Terraform Apply
+        working-directory: ./azure-vm-terraform
+        env:
+          ARM_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
+          ARM_CLIENT_SECRET: ${{ secrets.ARM_CLIENT_SECRET }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
+          ARM_TENANT_ID: ${{ secrets.ARM_TENANT_ID }}
+          TF_VAR_environment: production
+          TF_VAR_ssh_public_key: ${{ secrets.SSH_PUBLIC_KEY }}
+          TF_VAR_azure_subscription_id: ${{ secrets.ARM_SUBSCRIPTION_ID }}
+        run: terraform apply -auto-approve tfplan
+        
+      - name: Get VM IP
+        id: get_ip
+        working-directory: ./azure-vm-terraform
+        env:
+          ARM_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
+          ARM_CLIENT_SECRET: ${{ secrets.ARM_CLIENT_SECRET }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
+          ARM_TENANT_ID: ${{ secrets.ARM_TENANT_ID }}
+        run: |
+          VM_IP=$(terraform output -raw vm_public_ip)
+          echo "ip=$VM_IP" >> $GITHUB_OUTPUT
+          echo "✅ VM Public IP: $VM_IP"
+          
+      - name: Wait for VM
+        run: |
+          echo "Waiting for VM initialization..."
+          sleep 45
+
+      - name: Update IP Secrets
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          ENV="production"
+          VM_IP="${{ steps.get_ip.outputs.ip }}"
+          
+          if [ -z "$GH_TOKEN" ]; then
+            echo "❌ GH_TOKEN not set"
+            exit 1
+          fi
+          
+          if ! gh auth status 2>&1 | grep -q "Logged in"; then
+            echo "❌ GitHub CLI auth failed"
+            exit 1
+          fi
+          
+          echo "$VM_IP" | gh secret set PUBLIC_IP --env $ENV --repo "$GITHUB_REPOSITORY"
+          echo "$VM_IP" | gh secret set VM_PUBLIC_IP --env $ENV --repo "$GITHUB_REPOSITORY"
+          echo "$VM_IP:8443" | gh secret set NIFI_WEB_PROXY_HOST --env $ENV --repo "$GITHUB_REPOSITORY"
+          echo "https://$VM_IP:8443" | gh secret set NIFI_URL --env $ENV --repo "$GITHUB_REPOSITORY"
+          echo "http://$VM_IP:18080" | gh secret set REGISTRY_URL --env $ENV --repo "$GITHUB_REPOSITORY"
+          
+          echo "✅ Secrets updated"
+      
+      - name: Set Status
+        id: provision_status
+        if: always()
+        run: |
+          if [ "${{ job.status }}" = "success" ]; then
+            echo "success=true" >> $GITHUB_OUTPUT
+            echo "✅ Production provisioned"
+          else
+            echo "success=false" >> $GITHUB_OUTPUT
+            echo "❌ Production failed"
+          fi

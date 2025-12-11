@@ -1,18 +1,18 @@
-# Create Resource Group
+# Resource Group
 resource "azurerm_resource_group" "rg" {
   name     = var.resource_group_name
-  location = var.azure_location
+  location = var.location
 
   tags = {
     Environment = var.environment
+    Project     = "NiFi-CICD"
     ManagedBy   = "Terraform"
-    Project     = "nifi_cicd_project"
   }
 }
 
-# Create Virtual Network
+# Virtual Network
 resource "azurerm_virtual_network" "vnet" {
-  name                = "vnet-nifi-dev"
+  name                = "${var.prefix}-vnet"
   address_space       = ["10.0.0.0/16"]
   location            = azurerm_resource_group.rg.location
   resource_group_name = azurerm_resource_group.rg.name
@@ -23,24 +23,37 @@ resource "azurerm_virtual_network" "vnet" {
   }
 }
 
-# Create Subnet
+# Subnet
 resource "azurerm_subnet" "subnet" {
-  name                 = "subnet-nifi-dev"
+  name                 = "${var.prefix}-subnet"
   resource_group_name  = azurerm_resource_group.rg.name
   virtual_network_name = azurerm_virtual_network.vnet.name
   address_prefixes     = ["10.0.1.0/24"]
 }
 
-# Create Network Security Group
+# Public IP
+resource "azurerm_public_ip" "pip" {
+  name                = "${var.prefix}-pip"
+  location            = azurerm_resource_group.rg.location
+  resource_group_name = azurerm_resource_group.rg.name
+  allocation_method   = "Static"
+  sku                 = "Standard"
+
+  tags = {
+    Environment = var.environment
+    ManagedBy   = "Terraform"
+  }
+}
+
+# Network Security Group
 resource "azurerm_network_security_group" "nsg" {
-  name                = "nsg-nifi-dev"
+  name                = "${var.prefix}-nsg"
   location            = azurerm_resource_group.rg.location
   resource_group_name = azurerm_resource_group.rg.name
 
-  # Allow SSH
   security_rule {
-    name                       = "AllowSSH"
-    priority                   = 100
+    name                       = "SSH"
+    priority                   = 1001
     direction                  = "Inbound"
     access                     = "Allow"
     protocol                   = "Tcp"
@@ -50,10 +63,9 @@ resource "azurerm_network_security_group" "nsg" {
     destination_address_prefix = "*"
   }
 
-  # Allow NiFi HTTPS
   security_rule {
-    name                       = "AllowNiFiHTTPS"
-    priority                   = 101
+    name                       = "NiFi-HTTPS"
+    priority                   = 1002
     direction                  = "Inbound"
     access                     = "Allow"
     protocol                   = "Tcp"
@@ -63,23 +75,9 @@ resource "azurerm_network_security_group" "nsg" {
     destination_address_prefix = "*"
   }
 
-  # Allow NiFi HTTP
   security_rule {
-    name                       = "AllowNiFiHTTP"
-    priority                   = 102
-    direction                  = "Inbound"
-    access                     = "Allow"
-    protocol                   = "Tcp"
-    source_port_range          = "*"
-    destination_port_range     = "8080"
-    source_address_prefix      = "*"
-    destination_address_prefix = "*"
-  }
-
-  # Allow NiFi Registry
-  security_rule {
-    name                       = "AllowNiFiRegistry"
-    priority                   = 103
+    name                       = "NiFi-Registry"
+    priority                   = 1003
     direction                  = "Inbound"
     access                     = "Allow"
     protocol                   = "Tcp"
@@ -95,23 +93,9 @@ resource "azurerm_network_security_group" "nsg" {
   }
 }
 
-# Create Public IP
-resource "azurerm_public_ip" "public_ip" {
-  name                = "pip-nifi-dev"
-  location            = azurerm_resource_group.rg.location
-  resource_group_name = azurerm_resource_group.rg.name
-  allocation_method   = "Static"
-  sku                 = "Standard"
-
-  tags = {
-    Environment = var.environment
-    ManagedBy   = "Terraform"
-  }
-}
-
-# Create Network Interface
+# Network Interface
 resource "azurerm_network_interface" "nic" {
-  name                = "nic-nifi-dev"
+  name                = "${var.prefix}-nic"
   location            = azurerm_resource_group.rg.location
   resource_group_name = azurerm_resource_group.rg.name
 
@@ -119,7 +103,7 @@ resource "azurerm_network_interface" "nic" {
     name                          = "internal"
     subnet_id                     = azurerm_subnet.subnet.id
     private_ip_address_allocation = "Dynamic"
-    public_ip_address_id          = azurerm_public_ip.public_ip.id
+    public_ip_address_id          = azurerm_public_ip.pip.id
   }
 
   tags = {
@@ -128,29 +112,34 @@ resource "azurerm_network_interface" "nic" {
   }
 }
 
-# Associate NSG with Subnet
-resource "azurerm_subnet_network_security_group_association" "nsg_association" {
-  subnet_id                 = azurerm_subnet.subnet.id
+# Associate NSG with NIC
+resource "azurerm_network_interface_security_group_association" "nic_nsg" {
+  network_interface_id      = azurerm_network_interface.nic.id
   network_security_group_id = azurerm_network_security_group.nsg.id
 }
 
-# Create Linux Virtual Machine
+# Linux Virtual Machine
 resource "azurerm_linux_virtual_machine" "vm" {
-  name                = "vm-nifi-dev"
+  name                = var.vm_name
   location            = azurerm_resource_group.rg.location
   resource_group_name = azurerm_resource_group.rg.name
   size                = var.vm_size
-  admin_username      = "azureuser"
+  admin_username      = var.admin_username
+
+  network_interface_ids = [
+    azurerm_network_interface.nic.id,
+  ]
 
   admin_ssh_key {
-    username   = "azureuser"
-    public_key = file(var.ssh_public_key_path)
-  }
+    username   = var.admin_username
+    public_key = var.ssh_public_key
+   }
 
   os_disk {
-    name                 = "osdisk-nifi-dev"
-    caching              = "ReadWrite"
-    storage_account_type = "Premium_LRS"
+  name                 = "osdisk-${var.prefix}"
+  caching              = "ReadWrite"
+  storage_account_type = "Premium_LRS"
+  disk_size_gb         = 128
   }
 
   source_image_reference {
@@ -160,17 +149,17 @@ resource "azurerm_linux_virtual_machine" "vm" {
     version   = "latest"
   }
 
-  network_interface_ids = [
-    azurerm_network_interface.nic.id,
-  ]
-
   tags = {
     Environment = var.environment
     ManagedBy   = "Terraform"
   }
+
+  depends_on = [
+    azurerm_network_interface_security_group_association.nic_nsg
+  ]
 }
 
-# Install Docker, Docker Compose, Make, and Git
+# Custom Script Extension to install Docker, Docker Compose, Make, and Git
 resource "azurerm_virtual_machine_extension" "docker_install" {
   name                 = "DockerInstall"
   virtual_machine_id   = azurerm_linux_virtual_machine.vm.id
@@ -181,47 +170,53 @@ resource "azurerm_virtual_machine_extension" "docker_install" {
   settings = jsonencode({
     commandToExecute = <<-EOT
       bash -c '
-      set -e
-      
-      # Update system
-      echo "Updating system packages..."
+      # Update package list
       sudo apt-get update
       
       # Install Docker
-      echo "Installing Docker..."
-      curl -fsSL https://get.docker.com -o get-docker.sh
-      sudo sh get-docker.sh
-      rm get-docker.sh
+      curl -fsSL https://get.docker.com -o get-docker.sh && sudo sh get-docker.sh
       
       # Install Docker Compose
-      echo "Installing Docker Compose..."
       sudo curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
       sudo chmod +x /usr/local/bin/docker-compose
       
       # Install Make and Git
-      echo "Installing Make and Git..."
       sudo apt-get install -y make git
+  
+      # Install GitHub CLI
+      curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
+      sudo chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg
+      echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
+      sudo apt-get update
+      sudo apt-get install -y gh
       
       # Add azureuser to docker group
-      echo "Configuring Docker permissions..."
-      sudo usermod -aG docker azureuser
+      sudo usermod -aG docker ${var.admin_username}
       
       # Create project directory
-      echo "Creating project directory..."
-      sudo mkdir -p /opt/nifi_cicd_project
-      sudo chown azureuser:azureuser /opt/nifi_cicd_project
+      sudo mkdir -p /home/${var.admin_username}/nifi-cicd
+      sudo chown ${var.admin_username}:${var.admin_username} /home/${var.admin_username}/nifi-cicd
+      
+      # Create backup directories
+      sudo mkdir -p /home/${var.admin_username}/{development,staging,production}-backups
+      sudo chown -R ${var.admin_username}:${var.admin_username} /home/${var.admin_username}/*-backups
       
       # Log completion
       echo "VM setup completed at $(date)" | sudo tee /var/log/vm-setup-complete.log
-      echo "✅ Setup complete"
       '
     EOT
   })
-
-  depends_on = [azurerm_linux_virtual_machine.vm]
 
   tags = {
     Environment = var.environment
     ManagedBy   = "Terraform"
   }
+
+  timeouts {
+    create = "30m"
+  }
+
+  depends_on = [
+    azurerm_linux_virtual_machine.vm
+  ]
 }

@@ -1,0 +1,414 @@
+name: Deploy to Staging Environment
+
+on:
+  push:
+    branches:
+      - staging
+    paths:  
+      - 'flows/**' 
+      - 'scripts/**'
+      - '.github/workflows/deploy-staging.yml'
+      - 'compose.staging.yml'
+      - 'config/**'
+      - 'azure-vm-terraform/**'
+      - 'data/**'
+
+env:
+  ENVIRONMENT: staging
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+
+  check-merge:
+    name: Check PR Merge Status
+    runs-on: ubuntu-22.04
+    if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.merged == true)
+    steps:
+      - name: Confirm Deployment
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "✅ PR #${{ github.event.pull_request.number }} was merged - proceeding with deployment"
+          else
+            echo "✅ Direct push to staging - proceeding with deployment"
+          fi
+  detect-changes:
+    name: Detect Changes
+    runs-on: ubuntu-22.04
+    needs: check-merge
+    outputs:
+      registry_changed: ${{ steps.check_changes.outputs.registry_changed }}
+      nifi_changed: ${{ steps.check_changes.outputs.nifi_changed }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 2
+          
+      - name: Check what changed
+        id: check_changes
+        run: |
+          CHANGED_FILES=$(git diff --name-only HEAD^ HEAD)
+          
+          REGISTRY_CHANGED=false
+          NIFI_CHANGED=false
+          
+          # Check if registry-related files changed (including registry flow storage)
+          if echo "$CHANGED_FILES" | grep -qE '(data/nifi_registry_flow_storage|data/nifi_registry_database|config/registry)'; then
+            REGISTRY_CHANGED=true
+            echo "📦 Registry flow versions or configuration changed"
+          fi
+          
+          # Check if NiFi-related files changed (including flows and scripts)
+          if echo "$CHANGED_FILES" | grep -qE '(flows/|config/nifi|scripts/)'; then
+            NIFI_CHANGED=true
+            echo "📄 NiFi configuration or flows changed"
+          fi
+          
+          # Check compose file changes
+          if echo "$CHANGED_FILES" | grep -q 'compose.staging.yml'; then
+            if git diff HEAD^ HEAD compose.staging.yml | grep -qE '(nifi-registry:|NIFI_REGISTRY)'; then
+              REGISTRY_CHANGED=true
+              echo "🔧 Registry compose configuration changed"
+            fi
+            if git diff HEAD^ HEAD compose.staging.yml | grep -qE '(nifi:|NIFI_[^R])'; then
+              NIFI_CHANGED=true
+              echo "🔧 NiFi compose configuration changed"
+            fi
+          fi
+          
+          echo "registry_changed=$REGISTRY_CHANGED" >> $GITHUB_OUTPUT
+          echo "nifi_changed=$NIFI_CHANGED" >> $GITHUB_OUTPUT
+          
+          echo ""
+          echo "================================"
+          echo "Registry needs restart: $REGISTRY_CHANGED"
+          echo "NiFi needs restart: $NIFI_CHANGED"
+          echo "================================"
+          echo ""
+          if [ "$REGISTRY_CHANGED" = "true" ]; then
+            echo "ℹ️  Registry will restart - NiFi will stay running and auto-reconnect"
+          fi
+          if [ "$NIFI_CHANGED" = "true" ]; then
+            echo "ℹ️  NiFi will restart to apply changes"
+          fi
+   
+  validate:
+    name: Validate Configuration
+    runs-on: ubuntu-22.04
+    environment: staging
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+        
+      - name: Verify Secrets
+        run: |
+          MISSING_SECRETS=()
+          
+          # Check VM IP (with fallback)
+          if [ -z "${{ secrets.VM_PUBLIC_IP }}" ] && [ -z "${{ secrets.PUBLIC_IP }}" ]; then
+            MISSING_SECRETS+=("VM_PUBLIC_IP or PUBLIC_IP")
+          fi
+          
+          # Check required secrets
+          [ -z "${{ secrets.VM_USERNAME }}" ] && MISSING_SECRETS+=("VM_USERNAME")
+          [ -z "${{ secrets.SSH_PRIVATE_KEY }}" ] && MISSING_SECRETS+=("SSH_PRIVATE_KEY")
+          [ -z "${{ secrets.NIFI_PASSWORD }}" ] && MISSING_SECRETS+=("NIFI_PASSWORD")
+          [ -z "${{ secrets.NIFI_SENSITIVE_KEY }}" ] && MISSING_SECRETS+=("NIFI_SENSITIVE_KEY")
+          
+          if [ ${#MISSING_SECRETS[@]} -gt 0 ]; then
+            echo "❌ Missing required secrets:"
+            printf '  - %s\n' "${MISSING_SECRETS[@]}"
+            echo ""
+            echo "Set these in: Settings → Environments → staging → Environment secrets"
+            exit 1
+          fi
+          
+          echo "✅ All required secrets are set"
+        
+      - name: Validate Docker Compose
+        run: |
+          docker compose -f compose.staging.yml config > /dev/null
+          echo "✅ Docker Compose file is valid"
+  check-infrastructure:
+    name: Check Infrastructure
+    runs-on: ubuntu-22.04
+    needs: [validate, detect-changes]
+    environment: staging
+    outputs:
+      vm_ip: ${{ steps.get_ip.outputs.ip }}
+    steps:
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: |
+            {
+              "clientId": "${{ secrets.ARM_CLIENT_ID }}",
+              "clientSecret": "${{ secrets.ARM_CLIENT_SECRET }}",
+              "subscriptionId": "${{ secrets.ARM_SUBSCRIPTION_ID }}",
+              "tenantId": "${{ secrets.ARM_TENANT_ID }}"
+            }
+            
+      - name: Check VM and Get IP
+        id: get_ip
+        run: |
+          VM_EXISTS=$(az vm show \
+            --resource-group rg-nifi-cicd-staging \
+            --name vm-nifi-staging \
+            --query "provisioningState" \
+            -o tsv 2>/dev/null || echo "NotFound")
+          
+          if [ "$VM_EXISTS" = "NotFound" ]; then
+            echo "❌ Staging VM not found!"
+            echo ""
+            echo "Provision infrastructure first:"
+            echo "  Actions → 'Provision Infrastructure' → Run workflow → Select 'staging'"
+            exit 1
+          fi
+          
+          VM_IP=$(az vm show \
+            --resource-group rg-nifi-cicd-staging \
+            --name vm-nifi-staging \
+            --show-details \
+            --query publicIps \
+            -o tsv)
+          
+          [ -z "$VM_IP" ] && echo "❌ Failed to retrieve VM IP" && exit 1
+          
+          echo "ip=$VM_IP" >> $GITHUB_OUTPUT
+          echo "✅ VM IP: $VM_IP"
+    
+  deploy:
+    name: Deploy to Staging
+    needs: check-infrastructure
+    runs-on: ubuntu-22.04
+    environment: staging
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+        
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H ${{ needs.check-infrastructure.outputs.vm_ip }} >> ~/.ssh/known_hosts 2>/dev/null || true
+          
+      - name: Test SSH Connection 
+        run: |
+          MAX_RETRIES=5
+          for i in $(seq 1 $MAX_RETRIES); do
+            echo "Attempt $i/$MAX_RETRIES..."
+            
+            if ssh -i ~/.ssh/deploy_key \
+              -o StrictHostKeyChecking=no \
+              -o ConnectTimeout=30 \
+              ${{ secrets.VM_USERNAME }}@${{ needs.check-infrastructure.outputs.vm_ip }} \
+              "echo '✅ SSH connection successful'"; then
+              exit 0
+            fi
+            
+            [ $i -lt $MAX_RETRIES ] && sleep $((i * 30))
+          done
+          
+          echo "❌ SSH connection failed after $MAX_RETRIES attempts"
+          exit 1
+          
+      - name: Pre-Deployment Backup
+        run: |
+          cat > /tmp/backup.sh <<'BACKUP_SCRIPT'
+          #!/bin/bash
+          set -e
+          
+          [ ! -d ~/nifi-cicd ] && echo "First deployment - no backup needed" && exit 0
+          
+          BACKUP_DIR=~/staging-backups/$(date +%Y%m%d_%H%M%S)
+          mkdir -p "$BACKUP_DIR"
+          cd ~/nifi-cicd
+          
+          [ -d "flows" ] && cp -r flows "$BACKUP_DIR/" 2>/dev/null || true
+          [ -f "compose.staging.yml" ] && cp compose.staging.yml "$BACKUP_DIR/" 2>/dev/null || true
+          
+          cd ~/staging-backups
+          ls -t | tail -n +6 | xargs -I {} rm -rf {} 2>/dev/null || true
+          
+          echo "✓ Backup completed: $BACKUP_DIR"
+          BACKUP_SCRIPT
+          
+          scp -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+            /tmp/backup.sh \
+            ${{ secrets.VM_USERNAME }}@${{ needs.check-infrastructure.outputs.vm_ip }}:/tmp/backup.sh
+          
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+            ${{ secrets.VM_USERNAME }}@${{ needs.check-infrastructure.outputs.vm_ip }} \
+            "chmod +x /tmp/backup.sh && /tmp/backup.sh && rm /tmp/backup.sh"
+        
+      - name: Sync project files
+        run: |
+          sudo apt-get update && sudo apt-get install -y rsync
+          
+          rsync -avz \
+            --exclude='.git/' \
+            --exclude='.github/' \
+            --exclude='azure-vm-terraform/' \
+            --exclude='node_modules/' \
+            --exclude='*.log' \
+            --exclude='.terraform/' \
+            --exclude='*.tfstate*' \
+            --exclude='.env*' \
+            --exclude='data/nifi_flowfile_repository/' \
+            --exclude='data/nifi_content_repository/' \
+            --exclude='data/nifi_provenance_repository/' \
+            --exclude='data/nifi_database_repository/' \
+            --exclude='data/nifi_state/' \
+            --exclude='data/nifi_logs/' \
+            --exclude='data/nifi_nar_extensions/' \
+            --exclude='data/nifi_python_extensions/' \
+            -e "ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no" \
+            ./ ${{ secrets.VM_USERNAME }}@${{ needs.check-infrastructure.outputs.vm_ip }}:~/nifi-cicd/
+          
+      - name: Deploy Services
+        run: |
+          REGISTRY_CHANGED="${{ needs.detect-changes.outputs.registry_changed }}"
+          NIFI_CHANGED="${{ needs.detect-changes.outputs.nifi_changed }}"
+          
+          cat > /tmp/deploy.sh <<'DEPLOY_SCRIPT'
+          #!/bin/bash
+          set -e
+          cd ~/nifi-cicd
+          
+          # Check if containers exist
+          CONTAINERS_EXIST=false
+          sudo docker compose -f compose.staging.yml ps | grep -q "nifi" && CONTAINERS_EXIST=true
+          
+          if [ "$CONTAINERS_EXIST" = "false" ]; then
+            echo "Initial deployment - starting all services..."
+            sudo docker pull apache/nifi:2.6.0
+            sudo docker pull apache/nifi-registry:2.6.0
+            sudo -E docker compose -f compose.staging.yml up -d
+            sleep 30
+            
+          elif [ "$REGISTRY_CHANGED" = "true" ] && [ "$NIFI_CHANGED" = "false" ]; then
+            echo "===================================="
+            echo "Restarting ONLY NiFi Registry..."
+            echo "NiFi will remain running and detect registry changes"
+            echo "===================================="
+            sudo docker pull apache/nifi-registry:2.6.0
+            sudo docker compose -f compose.staging.yml restart nifi-registry
+            echo "✅ Registry restarted. NiFi is still running and will detect the reconnection."
+            sleep 15
+            
+          elif [ "$NIFI_CHANGED" = "true" ] && [ "$REGISTRY_CHANGED" = "false" ]; then
+            echo "Restarting NiFi only..."
+            sudo docker pull apache/nifi:2.6.0
+            sudo docker compose -f compose.staging.yml restart nifi
+            sleep 30
+            
+          else
+            echo "Restarting both services..."
+            sudo docker pull apache/nifi:2.6.0
+            sudo docker pull apache/nifi-registry:2.6.0
+            sudo docker compose -f compose.staging.yml restart nifi-registry
+            sleep 15
+            sudo docker compose -f compose.staging.yml restart nifi
+            sleep 30
+          fi
+          
+          sudo docker compose -f compose.staging.yml ps
+          DEPLOY_SCRIPT
+          
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+            ${{ secrets.VM_USERNAME }}@${{ needs.check-infrastructure.outputs.vm_ip }} \
+            "export REGISTRY_CHANGED='$REGISTRY_CHANGED' && \
+             export NIFI_CHANGED='$NIFI_CHANGED' && \
+             export NIFI_REGISTRY_PORT='${{ secrets.NIFI_REGISTRY_PORT }}' && \
+             export NIFI_REGISTRY_HOST='${{ secrets.NIFI_REGISTRY_HOST }}' && \
+             export REGISTRY_URL='http://nifi-registry:18080' && \
+             export NIFI_USERNAME='${{ secrets.NIFI_USERNAME }}' && \
+             export NIFI_PASSWORD='${{ secrets.NIFI_PASSWORD }}' && \
+             export NIFI_SENSITIVE_PROPS_KEY='${{ secrets.NIFI_SENSITIVE_KEY }}' && \
+             export NIFI_ELECTION_MAX_WAIT='${{ secrets.NIFI_ELECTION_MAX_WAIT }}' && \
+             export NIFI_HTTPS_PORT='${{ secrets.NIFI_HTTPS_PORT }}' && \
+             export NIFI_WEB_HTTPS_HOST='${{ secrets.NIFI_WEB_HTTPS_HOST }}' && \
+             export NIFI_WEB_PROXY_HOST='${{ needs.check-infrastructure.outputs.vm_ip }}:8443' && \
+             export NIFI_URL='https://${{ needs.check-infrastructure.outputs.vm_ip }}:8443' && \
+             export PUBLIC_IP='${{ needs.check-infrastructure.outputs.vm_ip }}' && \
+             bash -s" < /tmp/deploy.sh
+            
+      - name: Health Check
+        run: |
+          REGISTRY_CHANGED="${{ needs.detect-changes.outputs.registry_changed }}"
+          NIFI_CHANGED="${{ needs.detect-changes.outputs.nifi_changed }}"
+          
+          cat > /tmp/healthcheck.sh <<'HEALTH_SCRIPT'
+          #!/bin/bash
+          cd ~/nifi-cicd
+          
+          # Determine if initial deployment
+          INITIAL_DEPLOY="false"
+          sudo docker ps | grep -q nifi || INITIAL_DEPLOY="true"
+          
+          # Check NiFi health if needed
+          if [ "$NIFI_CHANGED" = "true" ] || [ "$INITIAL_DEPLOY" = "true" ]; then
+            echo "Checking NiFi health..."
+            for i in {1..30}; do
+              HTTP_CODE=$(curl -k -s -o /dev/null -w "%{http_code}" https://localhost:8443/nifi 2>/dev/null || echo "000")
+              
+              if [[ "$HTTP_CODE" =~ ^(200|301|302)$ ]]; then
+                echo "✅ NiFi is responding!"
+                break
+              fi
+              
+              [ $i -eq 30 ] && echo "❌ NiFi health check failed" && sudo docker compose -f compose.staging.yml logs --tail=50 nifi && exit 1
+              sleep 10
+            done
+          fi
+          
+          # Check Registry health if needed
+          if [ "$REGISTRY_CHANGED" = "true" ] || [ "$INITIAL_DEPLOY" = "true" ]; then
+            echo "Checking Registry health..."
+            for i in {1..15}; do
+              HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:18080/nifi-registry 2>/dev/null || echo "000")
+              
+              if [[ "$HTTP_CODE" =~ ^(200|301|302)$ ]]; then
+                echo "✅ Registry is responding!"
+                break
+              fi
+              
+              [ $i -eq 15 ] && echo "❌ Registry health check failed" && sudo docker compose -f compose.staging.yml logs --tail=50 nifi-registry && exit 1
+              sleep 5
+            done
+          fi
+          
+          echo "✅ All health checks passed"
+          HEALTH_SCRIPT
+          
+          scp -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+            /tmp/healthcheck.sh \
+            ${{ secrets.VM_USERNAME }}@${{ needs.check-infrastructure.outputs.vm_ip }}:/tmp/healthcheck.sh
+          
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+            ${{ secrets.VM_USERNAME }}@${{ needs.check-infrastructure.outputs.vm_ip }} \
+            "export REGISTRY_CHANGED='$REGISTRY_CHANGED' && \
+             export NIFI_CHANGED='$NIFI_CHANGED' && \
+             chmod +x /tmp/healthcheck.sh && /tmp/healthcheck.sh && rm /tmp/healthcheck.sh"
+          
+      - name: Deployment Summary
+        if: success()
+        run: |
+          echo ""
+          echo "=============================="
+          echo " DEPLOYMENT SUCCESSFUL"
+          echo "=============================="
+          echo ""
+          echo "NiFi UI: https://${{ needs.check-infrastructure.outputs.vm_ip }}:8443/nifi"
+          echo "Registry: http://${{ needs.check-infrastructure.outputs.vm_ip }}:18080/nifi-registry"
+          echo "Username: ${{ secrets.NIFI_USERNAME }}"
+          echo ""
+          
+      - name: Cleanup SSH Keys
+        if: always()
+        run: rm -f ~/.ssh/deploy_key

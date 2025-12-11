@@ -3,7 +3,7 @@
 # NiFi CI/CD script to update GitHub secrets from .env files
 # This script reads NiFi configuration from .env files and pushes secrets to GitHub
 # Usage: ./setup_nifi_github_secrets.sh [environment] [options]
-# Environment: development
+# Environment: development, staging, production, or all (default: all)
 # Options:
 #   --ssh-key /path/to/key    Use existing SSH key
 #   --auto-setup              Automatically generate SSH key and configure VM
@@ -12,6 +12,7 @@
 #   --vm-password <password>  VM password for initial setup (will use key after)
 #   --from-env                Update secrets from .env files (skip SSH setup)
 #   --with-terraform          Also pull IPs from Terraform outputs
+#   --skip-ssh                Skip SSH key setup entirely (for CI/CD)
 
 REPO="saadkhalmadani/nifi-cicd"
 ENVIRONMENT=${1:-all}
@@ -25,6 +26,15 @@ VM_USER="azureuser"
 VM_PASSWORD=""
 FROM_ENV=false
 WITH_TERRAFORM=false
+SKIP_SSH=false
+
+# Detect if running in GitHub Actions
+IS_GITHUB_ACTIONS=false
+if [ -n "${GITHUB_ACTIONS:-}" ]; then
+    IS_GITHUB_ACTIONS=true
+    SKIP_SSH=true  # Automatically skip SSH setup in GitHub Actions
+    print_info "Detected GitHub Actions environment - SSH setup will be skipped"
+fi
 
 # Parse arguments
 shift
@@ -32,10 +42,12 @@ while [[ $# -gt 0 ]]; do
     case $1 in
         --ssh-key)
             SSH_KEY_PATH="$2"
+            SKIP_SSH=false  # User explicitly provided SSH key
             shift 2
             ;;
         --auto-setup)
             AUTO_SETUP=true
+            SKIP_SSH=false
             shift
             ;;
         --vm-ip)
@@ -56,6 +68,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --with-terraform)
             WITH_TERRAFORM=true
+            shift
+            ;;
+        --skip-ssh)
+            SKIP_SSH=true
             shift
             ;;
         *)
@@ -285,9 +301,9 @@ SETUP_EOF
 # Function to automatically setup SSH
 auto_setup_ssh() {
     echo ""
-    echo "╔═══════════════════════════╗"
-    echo " 🔐 Automatic SSH Setup "
-    echo "╚═══════════════════════════╝"
+    echo "╔═══════════════════════╗"
+    echo " 🔐 Automatic SSH Setup  "
+    echo "╚═══════════════════════╝"
     echo ""
     
     # Validate inputs
@@ -346,7 +362,7 @@ get_gh_token() {
 
 # Function to ensure GitHub environments exist
 ensure_github_environments() {
-    local environments=("development")
+    local environments=("development" "staging" "production")
     
     print_info "Checking GitHub environments..."
     
@@ -371,7 +387,7 @@ ensure_github_environments() {
 
 # Function to ensure .env files exist
 ensure_env_files() {
-    local env_files=(".env.development")
+    local env_files=(".env.development" ".env.staging" ".env.production")
     
     print_info "Checking .env files..."
     
@@ -414,9 +430,9 @@ EOF
 # Function to setup repository-level secrets (shared across all environments)
 setup_repository_secrets() {
     echo ""
-    echo "╔════════════════════════════════════════╗"
+    echo "╔══════════════════════════════════════╗"
     echo " 📦 Repository-Level Secrets (Shared) "
-    echo "╚════════════════════════════════════════╝"
+    echo "╚══════════════════════════════════════╝"
     echo ""
     
     local success_count=0
@@ -486,6 +502,16 @@ setup_repository_secrets() {
 setup_environment_ssh_secrets() {
     local env=$1
     
+    # Skip SSH setup if flag is set
+    if [ "$SKIP_SSH" = true ]; then
+        print_warning "Skipping SSH key setup for environment: $env (--skip-ssh flag set)"
+        if [ "$IS_GITHUB_ACTIONS" = true ]; then
+            print_info "SSH secrets must be configured manually in GitHub Actions environments"
+            print_info "Run this script locally with --auto-setup or add secrets via GitHub UI"
+        fi
+        return 0
+    fi
+    
     echo ""
     print_info "Setting up SSH secrets for environment: $env"
     
@@ -537,9 +563,12 @@ setup_environment_ssh_secrets() {
             ((fail_count++))
         fi
     else
-        print_error "SSH key not found or invalid: $SSH_KEY_PATH"
-        print_info "Run with --auto-setup to generate a new SSH key"
-        ((fail_count++))
+        print_warning "SSH key not found or invalid: $SSH_KEY_PATH"
+        print_info "SSH_PRIVATE_KEY secret will not be set for this environment"
+        print_info "To fix:"
+        print_info "  1. Run locally: $0 $env --auto-setup --vm-ip <ip> --vm-password <pass>"
+        print_info "  2. Or manually add via GitHub UI:"
+        print_info "     https://github.com/$REPO/settings/environments"
     fi
     
     # Set VM_USERNAME per environment
@@ -562,6 +591,12 @@ get_terraform_outputs() {
     case "$env" in
         development|dev)
             env_name="development"
+            ;;
+        staging)
+            env_name="staging"
+            ;;
+        production|prod)
+            env_name="production"
             ;;
         *)
             return 1
@@ -653,6 +688,14 @@ update_nifi_secrets_from_env() {
             env_name="development"
             env_file=".env.development"
             ;;
+        staging)
+            env_name="staging"
+            env_file=".env.staging"
+            ;;
+        production|prod)
+            env_name="production"
+            env_file=".env.production"
+            ;;
         *)
             print_error "Invalid environment: $env"
             return 1
@@ -660,16 +703,21 @@ update_nifi_secrets_from_env() {
     esac
     
     echo ""
-    echo "╔═══════════════════════════════════════╗"
-    echo " 🔧 NiFi Configuration → GitHub Secrets  "
-    echo "         Environment: $env_name          "
-    echo "╚═══════════════════════════════════════╝"
+    echo "╔══════════════════════════════════════════╗"
+    echo "   🔧 NiFi Configuration → GitHub Secrets      "
+    echo "           Environment: $env_name              "
+    echo "╚══════════════════════════════════════════╝"
     echo ""
     
-    # Setup SSH secrets for this environment FIRST (whether FROM_ENV or not)
-    print_step "Setting up SSH authentication secrets..."
-    setup_environment_ssh_secrets "$env_name"
-    echo ""
+    # Setup SSH secrets for this environment (only if not skipping)
+    if [ "$SKIP_SSH" = false ]; then
+        print_step "Setting up SSH authentication secrets..."
+        setup_environment_ssh_secrets "$env_name"
+        echo ""
+    else
+        print_info "Skipping SSH secret setup (will be configured separately)"
+        echo ""
+    fi
     
     # Check if WITH_TERRAFORM flag is set and try to get Terraform outputs
     if [ "$WITH_TERRAFORM" = true ]; then
@@ -752,6 +800,7 @@ update_nifi_secrets_from_env() {
     print_info "📋 NiFi Application Secrets"
     set_env_secret "NIFI_REGISTRY_PORT" "${NIFI_REGISTRY_PORT:-}"
     set_env_secret "NIFI_REGISTRY_HOST" "${NIFI_REGISTRY_HOST:-}"
+    set_env_secret "REGISTRY_URL" "${REGISTRY_URL:-}"  
     set_env_secret "NIFI_USERNAME" "${NIFI_USERNAME:-}"
     set_env_secret "NIFI_PASSWORD" "${NIFI_PASSWORD:-}"
     set_env_secret "NIFI_SENSITIVE_KEY" "${NIFI_SENSITIVE_PROPS_KEY:-}"
@@ -759,6 +808,7 @@ update_nifi_secrets_from_env() {
     set_env_secret "NIFI_WEB_HTTPS_HOST" "${NIFI_WEB_HTTPS_HOST:-}"
     set_env_secret "NIFI_WEB_PROXY_HOST" "${NIFI_WEB_PROXY_HOST:-}"
     set_env_secret "NIFI_ELECTION_MAX_WAIT" "${NIFI_ELECTION_MAX_WAIT:-}"
+    set_env_secret "NIFI_URL" "${NIFI_URL:-}" 
 
     # Set VM/Infrastructure secrets from .env file
     echo ""
@@ -775,6 +825,8 @@ update_nifi_secrets_from_env() {
         set_env_secret "NIFI_HTTP_URL" "http://${PUBLIC_IP}:8080/nifi"
         set_env_secret "NIFI_HTTPS_URL" "https://${PUBLIC_IP}:8443/nifi"
         set_env_secret "NIFI_REGISTRY_URL" "http://${PUBLIC_IP}:18080/nifi-registry"
+        set_env_secret "REGISTRY_URL" "${REGISTRY_URL:-http://${PUBLIC_IP}:18080}"    # ADD THIS LINE
+        set_env_secret "NIFI_URL" "${NIFI_URL:-https://${PUBLIC_IP}:8443}"            # ADD THIS LINE
     fi
     
     echo ""
@@ -786,9 +838,9 @@ update_nifi_secrets_from_env() {
 # Main function
 main() {
     echo ""
-    echo "╔═════════════════════════════════════════════════════════╗"
-    echo "║  🔧 NiFi Configuration → GitHub Secrets Setup        ║"
-    echo "╚═════════════════════════════════════════════════════════╝"
+    echo "╔════════════════════════════════════════════════╗"
+    echo "║  🔧 NiFi Configuration → GitHub Secrets Setup  ║"
+    echo "╚════════════════════════════════════════════════╝"
     echo ""
     
     # Check if GitHub CLI is authenticated
@@ -836,8 +888,16 @@ main() {
         development|dev)
             update_nifi_secrets_from_env "development"
             ;;
+        staging)
+            update_nifi_secrets_from_env "staging"
+            ;;
+        production|prod)
+            update_nifi_secrets_from_env "production"
+            ;;
         all)
             update_nifi_secrets_from_env "development"
+            update_nifi_secrets_from_env "staging"
+            update_nifi_secrets_from_env "production"
             ;;
         *)
             print_error "Invalid environment '$ENVIRONMENT'"
@@ -846,6 +906,9 @@ main() {
             echo ""
             echo "Environments:"
             echo "  development|dev    Update development secrets"
+            echo "  staging            Update staging secrets"
+            echo "  production|prod    Update production secrets"
+            echo "  all                Update all environments (default)"
             echo ""
             echo "Options:"
             echo "  --ssh-key <path>           Use existing SSH key"
@@ -874,9 +937,9 @@ main() {
     esac
     
     echo ""
-    echo "╔═══════════════════════════╗"
-    echo "║ ✅ Setup Complete!       ║"
-    echo "╚═══════════════════════════╝"
+    echo "╔════════════════════╗"
+    echo "║ ✅ Setup Complete! ║"
+    echo "╚════════════════════╝"
     echo ""
     print_info "Verify secrets at:"
     echo "   Repository: https://github.com/$REPO/settings/secrets/actions"
