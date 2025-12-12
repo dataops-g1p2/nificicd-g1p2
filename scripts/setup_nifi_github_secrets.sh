@@ -14,7 +14,7 @@
 #   --with-terraform          Also pull IPs from Terraform outputs
 #   --skip-ssh                Skip SSH key setup entirely (for CI/CD)
 
-REPO="saadkhalmadani/nifi-cicd"
+REPO="saadkhalmadani/nificicd-g1p2"
 ENVIRONMENT=${1:-all}
 SSH_KEY_PATH="${HOME}/.ssh/id_rsa"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

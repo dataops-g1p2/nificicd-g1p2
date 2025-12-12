@@ -5,7 +5,7 @@ resource "azurerm_resource_group" "rg" {
 
   tags = {
     Environment = var.environment
-    Project     = "NiFi-CICD"
+    Project     = "nificicd-g1p2"
     ManagedBy   = "Terraform"
   }
 }
@@ -194,8 +194,8 @@ resource "azurerm_virtual_machine_extension" "docker_install" {
       sudo usermod -aG docker ${var.admin_username}
       
       # Create project directory
-      sudo mkdir -p /home/${var.admin_username}/nifi-cicd
-      sudo chown ${var.admin_username}:${var.admin_username} /home/${var.admin_username}/nifi-cicd
+      sudo mkdir -p /home/${var.admin_username}/nificicd-g1p2
+      sudo chown ${var.admin_username}:${var.admin_username} /home/${var.admin_username}/nificicd-g1p2
       
       # Create backup directories
       sudo mkdir -p /home/${var.admin_username}/{development,staging,production}-backups

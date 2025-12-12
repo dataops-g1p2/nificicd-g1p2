@@ -10,7 +10,7 @@ on:
         type: string
         default: 'development'
       confirm_destruction:
-        description: 'Type "DESTROY" to confirm'
+        description: 'Type "DESTROY" to confirm infrastructure destruction'
         required: true
         type: string
       backup_before_destroy:
@@ -19,7 +19,7 @@ on:
         type: boolean
         default: true
       cleanup_secrets:
-        description: 'Remove GitHub dynamic secrets?'
+        description: 'Remove GitHub dynamic secrets after destroy?'
         required: true
         type: boolean
         default: false
@@ -43,12 +43,16 @@ jobs:
       environment_list: ${{ steps.set_envs.outputs.environment_list }}
       is_multiple: ${{ steps.set_envs.outputs.is_multiple }}
     steps:
-
       - name: Parse and Validate Environments
         id: set_envs
         run: |
+          # Get input and clean it up
           INPUT="${{ github.event.inputs.environments }}"
+          
+          # Remove spaces and convert to lowercase
           INPUT=$(echo "$INPUT" | tr -d ' ' | tr '[:upper:]' '[:lower:]')
+          
+          # Split by comma and validate
           IFS=',' read -ra ENV_ARRAY <<< "$INPUT"
           
           VALID_ENVS=()
@@ -57,6 +61,7 @@ jobs:
           for env in "${ENV_ARRAY[@]}"; do
             case "$env" in
               development|staging|production)
+                # Check for duplicates
                 if [[ ! " ${VALID_ENVS[@]} " =~ " ${env} " ]]; then
                   VALID_ENVS+=("$env")
                 fi
@@ -67,34 +72,44 @@ jobs:
             esac
           done
           
+          # Report invalid environments
           if [ ${#INVALID_ENVS[@]} -gt 0 ]; then
-            echo "Invalid environment(s): ${INVALID_ENVS[*]}"
+            echo "❌ Invalid environment(s) specified: ${INVALID_ENVS[*]}"
+            echo ""
             echo "Valid options: development, staging, production"
             exit 1
           fi
           
+          # Check if any valid environments found
           if [ ${#VALID_ENVS[@]} -eq 0 ]; then
-            echo "No valid environments specified"
+            echo "❌ No valid environments specified"
+            echo ""
+            echo "Valid options: development, staging, production"
             exit 1
           fi
           
+          # Build JSON array for matrix
           JSON_ARRAY="["
           for i in "${!VALID_ENVS[@]}"; do
-            [ $i -gt 0 ] && JSON_ARRAY+=","
+            if [ $i -gt 0 ]; then
+              JSON_ARRAY+=","
+            fi
             JSON_ARRAY+="\"${VALID_ENVS[$i]}\""
           done
           JSON_ARRAY+="]"
           
+          # Build comma-separated list
           ENV_LIST=$(IFS=','; echo "${VALID_ENVS[*]}")
           
+          # Determine if multiple environments
           if [ ${#VALID_ENVS[@]} -gt 1 ]; then
             IS_MULTIPLE="true"
-            echo "Destroying ${#VALID_ENVS[@]} environments: $ENV_LIST"
+            echo "🗑️ Destroying ${#VALID_ENVS[@]} environments: $ENV_LIST"
             echo ""
-            echo " WARNING: Multiple environments!"
+            echo "⚠️  WARNING: Multiple environments will be destroyed!"
           else
             IS_MULTIPLE="false"
-            echo "Destroying: ${VALID_ENVS[0]}"
+            echo "🎯 Destroying: ${VALID_ENVS[0]}"
           fi
           
           echo "environments=$JSON_ARRAY" >> $GITHUB_OUTPUT
@@ -104,11 +119,11 @@ jobs:
           echo ""
           echo "Validated environments:"
           for env in "${VALID_ENVS[@]}"; do
-            echo "   $env"
+            echo "  ⚠️  $env"
           done
 
   validate-destruction:
-    name: Validate Destruction (${{ matrix.environment }})
+    name: Validate Destruction Request (${{ matrix.environment }})
     needs: determine-environments
     runs-on: ubuntu-22.04
     strategy:
@@ -116,22 +131,31 @@ jobs:
         environment: ${{ fromJson(needs.determine-environments.outputs.environments) }}
       fail-fast: false
     environment: ${{ matrix.environment }}
+    outputs:
+      all_validated: ${{ steps.validation_complete.outputs.all_validated }}
     steps:
-
       - name: Validate Confirmation
         run: |
           if [ "${{ github.event.inputs.confirm_destruction }}" != "DESTROY" ]; then
-            echo "Confirmation does not match!"
-            echo "Required: DESTROY"
+            echo "❌ ERROR: Confirmation text does not match!"
+            echo ""
+            echo "You must type exactly: DESTROY"
             echo "You typed: ${{ github.event.inputs.confirm_destruction }}"
+            echo ""
+            echo "⚠️  This is a safety measure to prevent accidental destruction."
             exit 1
           fi
-          echo "Destruction confirmed for ${{ matrix.environment }}"
+          
+          echo "✅ Destruction confirmed"
+          echo ""
+          echo "⚠️  WARNING: This will destroy the ${{ matrix.environment }} environment"
+          echo ""
           
       - name: Set Environment Variables
         id: set_env
         run: |
           ENV="${{ matrix.environment }}"
+          
           case $ENV in
             development)
               echo "rg=rg-nifi-cicd-dev" >> $GITHUB_OUTPUT
@@ -153,15 +177,25 @@ jobs:
               ;;
           esac
           
-      - name: Display Plan
+          echo "env_name=$ENV" >> $GITHUB_OUTPUT
+          
+      - name: Display Destruction Plan
         run: |
           echo "Environment: ${{ matrix.environment }}"
           echo "  - Azure VM: ${{ steps.set_env.outputs.vm_name }}"
           echo "  - Resource Group: ${{ steps.set_env.outputs.rg }}"
           echo "  - All NiFi data and configurations"
+          echo "  - All deployed flows and registry data"
+          echo ""
+          
+      - name: Mark Validation Complete
+        id: validation_complete
+        if: always()
+        run: |
+          echo "all_validated=true" >> $GITHUB_OUTPUT
 
   backup-before-destroy:
-    name: Create Backup (${{ matrix.environment }})
+    name: Create Final Backup (${{ matrix.environment }})
     needs: [determine-environments, validate-destruction]
     if: github.event.inputs.backup_before_destroy == 'true'
     runs-on: ubuntu-22.04
@@ -171,7 +205,6 @@ jobs:
       fail-fast: false
     environment: ${{ matrix.environment }}
     steps:
-
       - name: Checkout code
         uses: actions/checkout@v5
         
@@ -179,6 +212,7 @@ jobs:
         id: set_env
         run: |
           ENV="${{ matrix.environment }}"
+          
           case $ENV in
             development)
               echo "rg=rg-nifi-cicd-dev" >> $GITHUB_OUTPUT
@@ -211,7 +245,7 @@ jobs:
               "tenantId": "${{ secrets.ARM_TENANT_ID }}"
             }
             
-      - name: Check VM
+      - name: Check if VM Exists
         id: check_vm
         run: |
           RG="${{ steps.set_env.outputs.rg }}"
@@ -221,10 +255,10 @@ jobs:
             VM_IP=$(az vm show -d --resource-group $RG --name $VM_NAME --query publicIps -o tsv)
             echo "vm_exists=true" >> $GITHUB_OUTPUT
             echo "vm_ip=$VM_IP" >> $GITHUB_OUTPUT
-            echo "VM found: $VM_IP"
+            echo "✅ VM found: $VM_IP"
           else
             echo "vm_exists=false" >> $GITHUB_OUTPUT
-            echo "No VM found"
+            echo "ℹ️ No VM found - skipping backup"
           fi
           
       - name: Setup SSH
@@ -236,80 +270,98 @@ jobs:
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -H ${{ steps.check_vm.outputs.vm_ip }} >> ~/.ssh/known_hosts 2>/dev/null || true
           
-      - name: Create Backup
+      - name: Create Final Backup
         if: steps.check_vm.outputs.vm_exists == 'true'
         run: |
+          echo "Creating final backup before destruction..."
+          
           BACKUP_NAME="final-backup-$(date +%Y%m%d_%H%M%S)"
           BACKUP_DIR="${{ steps.set_env.outputs.backup_dir }}"
           COMPOSE_FILE="${{ steps.set_env.outputs.compose_file }}"
           ENV_FILE=".env.${{ matrix.environment }}"
           
-          cat > /tmp/backup.sh <<'BACKUP_SCRIPT'
+          cat > /tmp/final_backup.sh <<'BACKUP_SCRIPT'
           #!/bin/bash
           set -e
           
           BACKUP_NAME=$1
-          BACKUP_DIR=$2
+          BACKUP_DIR_NAME=$2
           COMPOSE_FILE=$3
           ENV_FILE=$4
-          BACKUP_PATH=~/$BACKUP_DIR/$BACKUP_NAME
+          BACKUP_PATH=~/$BACKUP_DIR_NAME/$BACKUP_NAME
           
           mkdir -p "$BACKUP_PATH"
           
-          if [ ! -d ~/nifi-cicd ]; then
-            echo "No deployment found"
+          if [ ! -d ~/nificicd-g1p2 ]; then
+            echo "No deployment found - nothing to backup"
             exit 0
           fi
           
-          cd ~/nifi-cicd
+          cd ~/nificicd-g1p2
+          
+          echo "Backing up configuration and data..."
           
           # Backup flows
           [ -d "flows" ] && cp -r flows "$BACKUP_PATH/" 2>/dev/null || true
           
-          # Backup configs
+          # Backup environment files
           [ -f "$ENV_FILE" ] && cp "$ENV_FILE" "$BACKUP_PATH/" 2>/dev/null || true
           [ -f "$COMPOSE_FILE" ] && cp "$COMPOSE_FILE" "$BACKUP_PATH/" 2>/dev/null || true
+          
+          # Backup config directory
           [ -d "config" ] && cp -r config "$BACKUP_PATH/" 2>/dev/null || true
+          
+          # Backup scripts
           [ -d "scripts" ] && cp -r scripts "$BACKUP_PATH/" 2>/dev/null || true
           
-          # Backup Docker volumes
+          # Backup Docker volumes if containers exist
           if sudo docker compose -f "$COMPOSE_FILE" ps -q nifi 2>/dev/null; then
+            echo "Backing up NiFi data from containers..."
             sudo docker compose -f "$COMPOSE_FILE" exec -T nifi tar czf - /opt/nifi/nifi-current/conf 2>/dev/null > "$BACKUP_PATH/nifi-conf.tar.gz" || true
             sudo docker compose -f "$COMPOSE_FILE" exec -T nifi tar czf - /opt/nifi/nifi-current/logs 2>/dev/null > "$BACKUP_PATH/nifi-logs.tar.gz" || true
           fi
           
+          # Create backup summary
           cat > "$BACKUP_PATH/backup-info.txt" <<INFO
           Backup Date: $(date)
           Environment: ${{ matrix.environment }}
           Reason: Infrastructure destruction
           VM IP: $(curl -s ifconfig.me 2>/dev/null || echo "unknown")
+          Hostname: $(hostname)
+          User: $(whoami)
           INFO
           
-          cd ~/$BACKUP_DIR
+          # Create compressed archive
+          cd ~/$BACKUP_DIR_NAME
           tar czf "$BACKUP_NAME.tar.gz" "$BACKUP_NAME"
           rm -rf "$BACKUP_NAME"
           
-          echo "Backup: ~/$BACKUP_DIR/$BACKUP_NAME.tar.gz"
+          echo "✅ Final backup completed: ~/$BACKUP_DIR_NAME/$BACKUP_NAME.tar.gz"
           ls -lh "$BACKUP_NAME.tar.gz"
           BACKUP_SCRIPT
           
           ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
             ${{ secrets.VM_USERNAME }}@${{ steps.check_vm.outputs.vm_ip }} \
-            "bash -s $BACKUP_NAME $BACKUP_DIR $COMPOSE_FILE $ENV_FILE" < /tmp/backup.sh
+            "bash -s $BACKUP_NAME $BACKUP_DIR $COMPOSE_FILE $ENV_FILE" < /tmp/final_backup.sh
             
-      - name: Download Backup
+      - name: Download Backup to GitHub
         if: steps.check_vm.outputs.vm_exists == 'true'
         run: |
+          echo "Downloading backup archive..."
+          
           BACKUP_NAME="final-backup-$(date +%Y%m%d_%H%M%S)"
           BACKUP_DIR="${{ steps.set_env.outputs.backup_dir }}"
           
           scp -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
             ${{ secrets.VM_USERNAME }}@${{ steps.check_vm.outputs.vm_ip }}:~/$BACKUP_DIR/$BACKUP_NAME.tar.gz \
-            ./final-backup.tar.gz 2>/dev/null || echo "Could not download"
+            ./final-backup.tar.gz 2>/dev/null || echo "⚠️ Could not download backup"
             
-          [ -f ./final-backup.tar.gz ] && echo "Downloaded" && ls -lh ./final-backup.tar.gz
+          if [ -f ./final-backup.tar.gz ]; then
+            echo "✅ Backup downloaded successfully"
+            ls -lh ./final-backup.tar.gz
+          fi
           
-      - name: Upload Artifact
+      - name: Upload Backup as Artifact
         if: steps.check_vm.outputs.vm_exists == 'true'
         uses: actions/upload-artifact@v4
         with:
@@ -318,12 +370,27 @@ jobs:
           retention-days: 90
         continue-on-error: true
         
+      - name: Backup Summary
+        if: steps.check_vm.outputs.vm_exists == 'true'
+        run: |
+          echo ""
+          echo "=============================="
+          echo " BACKUP COMPLETED"
+          echo "=============================="
+          echo ""
+          echo "✅ Final backup created and uploaded to GitHub Actions artifacts"
+          echo "📦 Retention: 90 days"
+          echo "🌐 Environment: ${{ matrix.environment }}"
+          echo ""
+          echo "To download: Go to Actions → This workflow run → Artifacts"
+          echo ""
+          
       - name: Cleanup
         if: always()
         run: rm -f ~/.ssh/deploy_key
 
   destroy-infrastructure:
-    name: Destroy Infrastructure (${{ matrix.environment }})
+    name: Destroy Azure Infrastructure (${{ matrix.environment }})
     needs: [determine-environments, validate-destruction, backup-before-destroy]
     if: always() && needs.validate-destruction.result == 'success' && (needs.backup-before-destroy.result == 'success' || needs.backup-before-destroy.result == 'skipped')
     runs-on: ubuntu-22.04
@@ -334,7 +401,6 @@ jobs:
       max-parallel: 1
     environment: ${{ matrix.environment }}
     steps:
-
       - name: Checkout code
         uses: actions/checkout@v5
         
@@ -342,6 +408,7 @@ jobs:
         id: set_env
         run: |
           ENV="${{ matrix.environment }}"
+          
           case $ENV in
             development)
               echo "rg=rg-nifi-cicd-dev" >> $GITHUB_OUTPUT
@@ -361,8 +428,9 @@ jobs:
         if: needs.determine-environments.outputs.is_multiple == 'true' && matrix.environment != 'development'
         run: |
           WAIT_TIME="${{ github.event.inputs.wait_time }}"
-          echo "Waiting ${WAIT_TIME}s..."
+          echo "⏳ Waiting ${WAIT_TIME} seconds before destroying next environment..."
           sleep $WAIT_TIME
+          echo "✅ Wait complete"
         
       - name: Azure Login
         uses: azure/login@v2
@@ -375,20 +443,23 @@ jobs:
               "tenantId": "${{ secrets.ARM_TENANT_ID }}"
             }
             
-      - name: Check Resource Group
+      - name: Check if Resource Group Exists
         id: check_rg
         run: |
           RG="${{ steps.set_env.outputs.rg }}"
           
           if az group exists --name $RG | grep -q "true"; then
             echo "exists=true" >> $GITHUB_OUTPUT
-            echo "Resource group: $RG"
+            echo "✅ Resource group found: $RG"
+            
+            # List resources that will be deleted
             echo ""
             echo "Resources to be deleted:"
             az resource list --resource-group $RG --output table || true
           else
             echo "exists=false" >> $GITHUB_OUTPUT
-            echo "Resource group does not exist"
+            echo "ℹ️ Resource group does not exist: $RG"
+            echo "Nothing to destroy"
           fi
           
       - name: Delete Resource Group
@@ -396,47 +467,68 @@ jobs:
         run: |
           RG="${{ steps.set_env.outputs.rg }}"
           
-          echo "🗑️ Deleting resource group..."
+          echo "🗑️ Deleting resource group and all resources..."
+          echo ""
           echo "Resource Group: $RG"
           echo "Environment: ${{ matrix.environment }}"
+          echo ""
           
           az group delete --name $RG --yes --no-wait
           
-          echo "Deletion initiated"
+          echo "✅ Resource group deletion initiated"
+          echo ""
+          echo "Note: Deletion runs asynchronously and may take several minutes"
           
-      - name: Verify Deletion
+      - name: Wait and Verify Deletion
         if: steps.check_rg.outputs.exists == 'true'
         run: |
           RG="${{ steps.set_env.outputs.rg }}"
           
-          echo "Waiting for deletion..."
+          echo "Waiting for resource group deletion to complete..."
+          echo ""
           
           for i in {1..60}; do
             if ! az group exists --name $RG | grep -q "true"; then
               echo ""
-              echo "Resource group deleted: $RG"
+              echo "✅ Resource group successfully deleted: $RG"
               exit 0
             fi
-            echo "Checking... ($i/60)"
+            echo "Checking deletion status... ($i/60)"
             sleep 10
           done
           
           echo ""
-          echo "Deletion still in progress"
-          echo "Verify manually: az group exists --name $RG"
+          echo "⚠️ Resource group deletion is still in progress"
+          echo "This is normal for large resource groups"
+          echo ""
+          echo "Verify deletion manually in Azure Portal or run:"
+          echo "  az group exists --name $RG"
           
-      - name: Summary
+      - name: Destruction Summary
         run: |
+          RG="${{ steps.set_env.outputs.rg }}"
+          VM_NAME="${{ steps.set_env.outputs.vm_name }}"
+          
           echo ""
           echo "=============================="
-          echo " INFRASTRUCTURE DESTROYED     "
+          echo " INFRASTRUCTURE DESTROYED"
           echo "=============================="
+          echo ""
           echo "Environment: ${{ matrix.environment }}"
-          echo "Resource Group: ${{ steps.set_env.outputs.rg }}"
+          echo "✅ Resource group deletion initiated: $RG"
+          echo ""
+          echo "Deleted resources:"
+          echo "  • VM: $VM_NAME"
+          echo "  • Network interfaces"
+          echo "  • Public IP addresses"
+          echo "  • Network security groups"
+          echo "  • Virtual network"
+          echo "  • Storage accounts"
+          echo "  • All other associated resources"
           echo ""
 
   cleanup-secrets:
-    name: Clean Up Secrets (${{ matrix.environment }})
+    name: Clean Up GitHub Secrets (${{ matrix.environment }})
     needs: [determine-environments, destroy-infrastructure]
     if: always() && needs.destroy-infrastructure.result == 'success' && github.event.inputs.cleanup_secrets == 'true'
     runs-on: ubuntu-22.04
@@ -446,7 +538,6 @@ jobs:
       fail-fast: false
     environment: ${{ matrix.environment }}
     steps:
-
       - name: Checkout code
         uses: actions/checkout@v5
         
@@ -455,11 +546,15 @@ jobs:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
         run: |
           ENV="${{ matrix.environment }}"
-          echo "Cleaning up secrets for $ENV..."
+          echo "Cleaning up dynamic GitHub secrets for $ENV..."
           
           if [ -z "$GH_TOKEN" ]; then
-            echo "GH_TOKEN not set"
-            echo "Manually remove these secrets:"
+            echo "⚠️ GH_TOKEN not set - cannot clean up secrets automatically"
+            echo ""
+            echo "Please manually remove these secrets from:"
+            echo "  Settings → Environments → $ENV → Environment secrets"
+            echo ""
+            echo "Dynamic secrets to remove:"
             echo "  - PUBLIC_IP"
             echo "  - VM_PUBLIC_IP"
             echo "  - NIFI_WEB_PROXY_HOST"
@@ -469,11 +564,13 @@ jobs:
           fi
           
           if ! gh auth status 2>&1 | grep -q "Logged in"; then
-            echo "GitHub CLI not authenticated"
+            echo "⚠️ GitHub CLI not authenticated"
+            echo "Skipping automatic secret cleanup"
             exit 0
           fi
           
-          SECRETS=(
+          # Remove dynamic secrets (keep authentication and static config)
+          SECRETS_TO_REMOVE=(
             "PUBLIC_IP"
             "VM_PUBLIC_IP"
             "NIFI_WEB_PROXY_HOST"
@@ -481,21 +578,44 @@ jobs:
             "REGISTRY_URL"
           )
           
-          for secret in "${SECRETS[@]}"; do
+          echo "Removing dynamic secrets from $ENV environment..."
+          for secret in "${SECRETS_TO_REMOVE[@]}"; do
             if gh secret delete "$secret" --env $ENV 2>/dev/null; then
-              echo "Removed: $secret"
+              echo "✅ Removed: $secret"
             else
-              echo "Skipped: $secret"
+              echo "ℹ️ Skipped: $secret (may not exist)"
             fi
           done
           
           echo ""
-          echo "Dynamic secrets cleaned from $ENV"
+          echo "✅ Dynamic secrets cleaned up from $ENV environment"
           echo ""
-          echo "Retained secrets:"
-          echo "  - ARM credentials (repository)"
-          echo "  - SSH keys (environment)"
-          echo "  - NiFi credentials (environment)"
+          echo "Retained secrets (for future deployments):"
+          echo "  - ARM_CLIENT_ID (repository)"
+          echo "  - ARM_CLIENT_SECRET (repository)"
+          echo "  - ARM_SUBSCRIPTION_ID (repository)"
+          echo "  - ARM_TENANT_ID (repository)"
+          echo "  - GH_TOKEN (repository)"
+          echo "  - SSH_PUBLIC_KEY (environment)"
+          echo "  - SSH_PRIVATE_KEY (environment)"
+          echo "  - NIFI_USERNAME (environment)"
+          echo "  - NIFI_PASSWORD (environment)"
+          echo "  - NIFI_SENSITIVE_KEY (environment)"
+          echo ""
+          
+      - name: Secrets Cleanup Summary
+        run: |
+          echo ""
+          echo "=============================="
+          echo " SECRETS CLEANUP COMPLETE"
+          echo "=============================="
+          echo ""
+          echo "Environment: ${{ matrix.environment }}"
+          echo "✅ Dynamic IP-based secrets removed"
+          echo "✅ Static configuration secrets retained"
+          echo ""
+          echo "You can redeploy anytime using the existing secrets"
+          echo ""
 
   final-summary:
     name: Destruction Complete
@@ -503,58 +623,99 @@ jobs:
     if: always()
     runs-on: ubuntu-22.04
     steps:
-      
       - name: Final Summary
         run: |
           echo ""
           echo "=========================================="
-          echo " DESTRUCTION SUMMARY"
+          echo " INFRASTRUCTURE DESTRUCTION SUMMARY"
           echo "=========================================="
           echo ""
           echo "Target: ${{ needs.determine-environments.outputs.environment_list }}"
           echo ""
-          echo "Status:"
+          echo "Status Summary:"
+          echo "  Environment Detection: ${{ needs.determine-environments.result }}"
           echo "  Validation: ${{ needs.validate-destruction.result }}"
           echo "  Backup: ${{ needs.backup-before-destroy.result }}"
-          echo "  Destruction: ${{ needs.destroy-infrastructure.result }}"
-          echo "  Cleanup: ${{ needs.cleanup-secrets.result }}"
+          echo "  Infrastructure Destruction: ${{ needs.destroy-infrastructure.result }}"
+          echo "  Secrets Cleanup: ${{ needs.cleanup-secrets.result }}"
           echo ""
           
           if [ "${{ needs.destroy-infrastructure.result }}" == "success" ]; then
-            echo "All environments destroyed"
+            echo "✅ All requested environments successfully destroyed"
             echo ""
+            echo "What was destroyed:"
             
             if [[ "${{ needs.determine-environments.outputs.environment_list }}" == *"development"* ]]; then
-              echo "  Development (rg-nifi-cicd-dev)"
+              echo "  ✅ Development environment"
+              echo "     - Azure VM (vm-nifi-development)"
+              echo "     - Resource group (rg-nifi-cicd-dev)"
             fi
+            
             if [[ "${{ needs.determine-environments.outputs.environment_list }}" == *"staging"* ]]; then
-              echo "  Staging (rg-nifi-cicd-staging)"
+              echo "  ✅ Staging environment"
+              echo "     - Azure VM (vm-nifi-staging)"
+              echo "     - Resource group (rg-nifi-cicd-staging)"
             fi
+            
             if [[ "${{ needs.determine-environments.outputs.environment_list }}" == *"production"* ]]; then
-              echo "  Production (rg-nifi-cicd-prod)"
+              echo "  ✅ Production environment"
+              echo "     - Azure VM (vm-nifi-production)"
+              echo "     - Resource group (rg-nifi-cicd-prod)"
             fi
             
             echo ""
-            echo "Deleted resources per environment:"
+            echo "Common resources deleted per environment:"
             echo "  • Virtual machines"
             echo "  • Network interfaces"
-            echo "  • Public IPs"
-            echo "  • Security groups"
+            echo "  • Public IP addresses"
+            echo "  • Network security groups"
             echo "  • Virtual networks"
             echo "  • Storage accounts"
-            echo "  • All NiFi data"
+            echo "  • All NiFi data and configurations"
             echo ""
             
             if [ "${{ github.event.inputs.backup_before_destroy }}" == "true" ]; then
-              echo "Backups: Available in Actions → Artifacts (90 days)"
+              echo "📦 Backup Status:"
+              echo "  ✅ Final backups created for all environments"
+              echo "  📁 Available in: Actions → Artifacts"
+              echo "  ⏰ Retention: 90 days"
               echo ""
             fi
             
-            echo "To redeploy:"
-            echo "  Run 'Provision Infrastructure' workflow"
+            if [ "${{ github.event.inputs.cleanup_secrets }}" == "true" ]; then
+              echo "🔒 Secrets Status:"
+              echo "  ✅ Dynamic secrets removed from all environments"
+              echo "  ✅ Static secrets retained for future deployments"
+              echo ""
+            fi
+            
+            echo "To redeploy any environment:"
+            echo "  1. Run 'Provision Infrastructure' workflow"
+            echo "  2. Enter environment(s) (e.g., 'development,staging')"
+            echo "  3. Or push to the appropriate branch:"
+            echo "     - development → 'develop' branch"
+            echo "     - staging → 'staging' branch"
+            echo "     - production → 'main' branch"
             echo ""
           else
-            echo "Destruction encountered issues"
-            echo "Check logs for details"
+            echo "⚠️ Destruction encountered issues"
+            echo ""
+            echo "Please check the logs above for details"
+            echo ""
+            echo "Manual cleanup commands if needed:"
+            
+            if [[ "${{ needs.determine-environments.outputs.environment_list }}" == *"development"* ]]; then
+              echo "  az group delete --name rg-nifi-cicd-dev --yes"
+            fi
+            
+            if [[ "${{ needs.determine-environments.outputs.environment_list }}" == *"staging"* ]]; then
+              echo "  az group delete --name rg-nifi-cicd-staging --yes"
+            fi
+            
+            if [[ "${{ needs.determine-environments.outputs.environment_list }}" == *"production"* ]]; then
+              echo "  az group delete --name rg-nifi-cicd-prod --yes"
+            fi
+            
+            echo ""
           fi
           echo "=========================================="
