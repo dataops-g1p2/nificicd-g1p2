@@ -15,16 +15,16 @@
           "componentType" : "CONNECTION",
           "destination" : {
             "comments" : "Adds metadata attributes to the FlowFile",
-            "groupId" : "78f86132-c0ba-3b6c-bb62-37dedb7c168a",
-            "id" : "97b24fb6-349b-337d-8de8-b0300a81ac1a",
-            "instanceIdentifier" : "127b011f-019b-1000-58b0-cbceb7ba62df",
+            "groupId" : "f05a597d-be67-342f-80f4-865a28136b35",
+            "id" : "a301c695-b1fd-389a-8822-61e3d30d5550",
+            "instanceIdentifier" : "12f5827a-019b-1000-eb92-697e956a205d",
             "name" : "UpdateAttribute",
             "type" : "PROCESSOR"
           },
           "flowFileExpiration" : "0 sec",
-          "groupIdentifier" : "78f86132-c0ba-3b6c-bb62-37dedb7c168a",
-          "identifier" : "c62fedf7-9734-3119-ba28-efc4f1da6912",
-          "instanceIdentifier" : "127b0fae-019b-1000-0c3e-b03aa33af8d3",
+          "groupIdentifier" : "f05a597d-be67-342f-80f4-865a28136b35",
+          "identifier" : "a52aa300-7f6c-3fe4-9518-f82a5004b7cf",
+          "instanceIdentifier" : "12f59069-019b-1000-d757-014e5d5c6392",
           "labelIndex" : 1,
           "loadBalanceCompression" : "DO_NOT_COMPRESS",
           "loadBalanceStrategy" : "DO_NOT_LOAD_BALANCE",
@@ -32,9 +32,9 @@
           "selectedRelationships" : [ "success" ],
           "source" : {
             "comments" : "Generates a simple JSON message every 10 seconds",
-            "groupId" : "78f86132-c0ba-3b6c-bb62-37dedb7c168a",
-            "id" : "32f1f831-7069-3430-86d9-4e099d27ca0b",
-            "instanceIdentifier" : "127afd61-019b-1000-9033-273c5c13ae57",
+            "groupId" : "f05a597d-be67-342f-80f4-865a28136b35",
+            "id" : "ac90717e-c5b1-32a7-9960-6197f3171b4a",
+            "instanceIdentifier" : "12f57e7e-019b-1000-16e3-a6fcf6ee1c49",
             "name" : "GenerateFlowFile",
             "type" : "PROCESSOR"
           },
@@ -46,16 +46,16 @@
           "componentType" : "CONNECTION",
           "destination" : {
             "comments" : "Logs the FlowFile content and attributes",
-            "groupId" : "78f86132-c0ba-3b6c-bb62-37dedb7c168a",
-            "id" : "3ab50c04-3fb5-3509-a7ff-98aa996420e6",
-            "instanceIdentifier" : "127b049b-019b-1000-a592-092703572c08",
+            "groupId" : "f05a597d-be67-342f-80f4-865a28136b35",
+            "id" : "e8afc9e9-97b2-3f62-9402-d6cf7755189c",
+            "instanceIdentifier" : "12f585bd-019b-1000-831c-aedb57fdb8af",
             "name" : "LogAttribute",
             "type" : "PROCESSOR"
           },
           "flowFileExpiration" : "0 sec",
-          "groupIdentifier" : "78f86132-c0ba-3b6c-bb62-37dedb7c168a",
-          "identifier" : "3515dbba-69b0-39af-8fa5-691779ba3c20",
-          "instanceIdentifier" : "127b12ba-019b-1000-7f96-a003a333bd57",
+          "groupIdentifier" : "f05a597d-be67-342f-80f4-865a28136b35",
+          "identifier" : "aec90f1a-2d2a-3c87-8a9f-e1280b598622",
+          "instanceIdentifier" : "12f59379-019b-1000-de17-c928ca61b4dc",
           "labelIndex" : 1,
           "loadBalanceCompression" : "DO_NOT_COMPRESS",
           "loadBalanceStrategy" : "DO_NOT_LOAD_BALANCE",
@@ -63,9 +63,9 @@
           "selectedRelationships" : [ "success" ],
           "source" : {
             "comments" : "Adds metadata attributes to the FlowFile",
-            "groupId" : "78f86132-c0ba-3b6c-bb62-37dedb7c168a",
-            "id" : "97b24fb6-349b-337d-8de8-b0300a81ac1a",
-            "instanceIdentifier" : "127b011f-019b-1000-58b0-cbceb7ba62df",
+            "groupId" : "f05a597d-be67-342f-80f4-865a28136b35",
+            "id" : "a301c695-b1fd-389a-8822-61e3d30d5550",
+            "instanceIdentifier" : "12f5827a-019b-1000-eb92-697e956a205d",
             "name" : "UpdateAttribute",
             "type" : "PROCESSOR"
           },
@@ -79,66 +79,15 @@
         "flowFileConcurrency" : "UNBOUNDED",
         "flowFileOutboundPolicy" : "STREAM_WHEN_AVAILABLE",
         "funnels" : [ ],
-        "identifier" : "78f86132-c0ba-3b6c-bb62-37dedb7c168a",
+        "identifier" : "f05a597d-be67-342f-80f4-865a28136b35",
         "inputPorts" : [ ],
-        "instanceIdentifier" : "127af9d1-019b-1000-6f35-3360bd77ec99",
+        "instanceIdentifier" : "12f57af1-019b-1000-5fe3-73f890fae319",
         "labels" : [ {
           "componentType" : "LABEL",
-          "groupIdentifier" : "78f86132-c0ba-3b6c-bb62-37dedb7c168a",
+          "groupIdentifier" : "f05a597d-be67-342f-80f4-865a28136b35",
           "height" : 120.0,
-          "identifier" : "a11c33c2-4c25-37b6-92ef-971514452b3c",
-          "instanceIdentifier" : "127b1f79-019b-1000-0695-5f0fbb81be8d",
-          "label" : "STEP 3: Log Output\n\nProcessor: LogAttribute\nLevel: INFO\nLogs: Payload + Attributes\n\nConfiguration:\n- Auto-terminates success\n- No downstream processing\n- Check: make logs-nifi",
-          "position" : {
-            "x" : 950.0,
-            "y" : 450.0
-          },
-          "style" : {
-            "font-size" : "13px",
-            "background-color" : "#ffccbc"
-          },
-          "width" : 300.0,
-          "zIndex" : 0
-        }, {
-          "componentType" : "LABEL",
-          "groupIdentifier" : "78f86132-c0ba-3b6c-bb62-37dedb7c168a",
-          "height" : 150.0,
-          "identifier" : "a606564b-814b-3ae3-b14b-318854a586cc",
-          "instanceIdentifier" : "127b2293-019b-1000-689c-b390dd33b765",
-          "label" : "CI/CD Pipeline Information\n\nEnvironments: Local (Docker) | Development (Azure VM) | Staging (Azure VM) | Production (Azure VM)\n\nDeployment Commands:\n  Local Test:    make up && make import-flows-auto\n  Deploy Dev:    make tf-apply ENV=development && make deploy-flows-dev\n  Deploy Stage:  make tf-apply ENV=staging && make deploy-flows-staging\n  Deploy Prod:   make tf-apply ENV=production && make deploy-flows-prod\n\nMonitoring:\n  View Credentials:  make echo-all\n  SSH Access:        make ssh-dev | make ssh-staging | make ssh-prod\n  Check Logs:        make logs-nifi (local) or make ssh-logs-dev (remote)",
-          "position" : {
-            "x" : 200.0,
-            "y" : 600.0
-          },
-          "style" : {
-            "font-size" : "12px",
-            "background-color" : "#e1bee7"
-          },
-          "width" : 1000.0,
-          "zIndex" : 0
-        }, {
-          "componentType" : "LABEL",
-          "groupIdentifier" : "78f86132-c0ba-3b6c-bb62-37dedb7c168a",
-          "height" : 180.0,
-          "identifier" : "ab5ac722-7a0e-3e4f-879d-2ef8a9a457b8",
-          "instanceIdentifier" : "127b15f5-019b-1000-b523-04a9d497bcbc",
-          "label" : "Simple NiFi Flow Example - CI/CD Demo\n\nThis flow demonstrates:\n1. GenerateFlowFile - Creates a JSON message every 10 seconds\n2. UpdateAttribute - Adds filename and metadata\n3. LogAttribute - Logs the FlowFile content and attributes\n\nQuick Start:\n- Select all processors (Shift+Click or drag to select)\n- Right-click and choose 'Start'\n- View logs: make logs-nifi\n\nCI/CD Deployment:\n- Local: make up && make import-flows-auto\n- Dev: make deploy-flows-dev\n- Staging: make deploy-flows-staging\n- Production: make deploy-flows-prod",
-          "position" : {
-            "x" : 200.0,
-            "y" : 50.0
-          },
-          "style" : {
-            "font-size" : "14px",
-            "background-color" : "#e3f2fd"
-          },
-          "width" : 900.0,
-          "zIndex" : 0
-        }, {
-          "componentType" : "LABEL",
-          "groupIdentifier" : "78f86132-c0ba-3b6c-bb62-37dedb7c168a",
-          "height" : 120.0,
-          "identifier" : "35a17c5e-3899-3e05-9a25-491b1e703165",
-          "instanceIdentifier" : "127b1c69-019b-1000-8516-ebbf285d5ad8",
+          "identifier" : "41a558fd-239d-3b84-b44b-2d0f467978d6",
+          "instanceIdentifier" : "12f59bf1-019b-1000-8e32-a8ea97d59ca9",
           "label" : "STEP 2: Add Metadata\n\nProcessor: UpdateAttribute\nAdds tracking attributes:\n- filename (with UUID)\n- source identifier\n- processing timestamp\n\nPurpose:\n- Flow tracking\n- Audit trail",
           "position" : {
             "x" : 550.0,
@@ -152,10 +101,23 @@
           "zIndex" : 0
         }, {
           "componentType" : "LABEL",
-          "groupIdentifier" : "78f86132-c0ba-3b6c-bb62-37dedb7c168a",
+          "groupIdentifier" : "f05a597d-be67-342f-80f4-865a28136b35",
+          "height" : 150.0,
+          "identifier" : "9f40b5b2-714b-3e87-acc3-2f81ee169938",
+          "instanceIdentifier" : "130a0330-019b-1000-bbbe-e0a12bcbff1c",
+          "position" : {
+            "x" : 1192.0,
+            "y" : 72.0
+          },
+          "style" : { },
+          "width" : 150.0,
+          "zIndex" : 1
+        }, {
+          "componentType" : "LABEL",
+          "groupIdentifier" : "f05a597d-be67-342f-80f4-865a28136b35",
           "height" : 120.0,
-          "identifier" : "891aafc1-2128-32cc-bad6-30e85b720e62",
-          "instanceIdentifier" : "127b1911-019b-1000-4ee6-37b95cedfa0a",
+          "identifier" : "3201816c-6a61-31f2-acbb-9bffcfe443d8",
+          "instanceIdentifier" : "12f59925-019b-1000-2a76-fc7e8465dbfa",
           "label" : "STEP 1: Generate Data\n\nProcessor: GenerateFlowFile\nSchedule: Every 10 seconds\nOutput: JSON with timestamp\n\nConfiguration:\n- Creates synthetic test data\n- Simulates a data source\n- Useful for testing flows",
           "position" : {
             "x" : 150.0,
@@ -167,106 +129,67 @@
           },
           "width" : 300.0,
           "zIndex" : 0
+        }, {
+          "componentType" : "LABEL",
+          "groupIdentifier" : "f05a597d-be67-342f-80f4-865a28136b35",
+          "height" : 180.0,
+          "identifier" : "71e917b4-743c-3617-ac1f-7a40f347f4da",
+          "instanceIdentifier" : "12f59654-019b-1000-5a44-726061c03515",
+          "label" : "Simple NiFi Flow Example - CI/CD Demo\n\nThis flow demonstrates:\n1. GenerateFlowFile - Creates a JSON message every 10 seconds\n2. UpdateAttribute - Adds filename and metadata\n3. LogAttribute - Logs the FlowFile content and attributes\n\nQuick Start:\n- Select all processors (Shift+Click or drag to select)\n- Right-click and choose 'Start'\n- View logs: make logs-nifi\n\nCI/CD Deployment:\n- Local: make up && make import-flows-auto\n- Dev: make deploy-flows-dev\n- Staging: make deploy-flows-staging\n- Production: make deploy-flows-prod",
+          "position" : {
+            "x" : 200.0,
+            "y" : 50.0
+          },
+          "style" : {
+            "font-size" : "14px",
+            "background-color" : "#e3f2fd"
+          },
+          "width" : 900.0,
+          "zIndex" : 0
+        }, {
+          "componentType" : "LABEL",
+          "groupIdentifier" : "f05a597d-be67-342f-80f4-865a28136b35",
+          "height" : 150.0,
+          "identifier" : "b1b9e6b6-fbd6-308c-ad1d-dee199a1415c",
+          "instanceIdentifier" : "12f5a172-019b-1000-3eb1-1e0019e151c8",
+          "label" : "CI/CD Pipeline Information\n\nEnvironments: Local (Docker) | Development (Azure VM) | Staging (Azure VM) | Production (Azure VM)\n\nDeployment Commands:\n  Local Test:    make up && make import-flows-auto\n  Deploy Dev:    make tf-apply ENV=development && make deploy-flows-dev\n  Deploy Stage:  make tf-apply ENV=staging && make deploy-flows-staging\n  Deploy Prod:   make tf-apply ENV=production && make deploy-flows-prod\n\nMonitoring:\n  View Credentials:  make echo-all\n  SSH Access:        make ssh-dev | make ssh-staging | make ssh-prod\n  Check Logs:        make logs-nifi (local) or make ssh-logs-dev (remote)",
+          "position" : {
+            "x" : 200.0,
+            "y" : 600.0
+          },
+          "style" : {
+            "font-size" : "12px",
+            "background-color" : "#e1bee7"
+          },
+          "width" : 1000.0,
+          "zIndex" : 0
+        }, {
+          "componentType" : "LABEL",
+          "groupIdentifier" : "f05a597d-be67-342f-80f4-865a28136b35",
+          "height" : 120.0,
+          "identifier" : "e8ff7eba-9fb4-33ad-acc1-450da07a92a7",
+          "instanceIdentifier" : "12f59eb2-019b-1000-49ba-dcb10a7d96b7",
+          "label" : "STEP 3: Log Output\n\nProcessor: LogAttribute\nLevel: INFO\nLogs: Payload + Attributes\n\nConfiguration:\n- Auto-terminates success\n- No downstream processing\n- Check: make logs-nifi",
+          "position" : {
+            "x" : 950.0,
+            "y" : 450.0
+          },
+          "style" : {
+            "font-size" : "13px",
+            "background-color" : "#ffccbc"
+          },
+          "width" : 300.0,
+          "zIndex" : 0
         } ],
         "maxConcurrentTasks" : 1,
         "name" : "GenerateAndLogFlow",
         "outputPorts" : [ ],
         "position" : {
-          "x" : 152.0,
-          "y" : 120.0
+          "x" : 240.0,
+          "y" : 112.0
         },
         "processGroups" : [ ],
         "processors" : [ {
-          "autoTerminatedRelationships" : [ ],
-          "backoffMechanism" : "PENALIZE_FLOWFILE",
-          "bulletinLevel" : "WARN",
-          "bundle" : {
-            "artifact" : "nifi-update-attribute-nar",
-            "group" : "org.apache.nifi",
-            "version" : "2.6.0"
-          },
-          "comments" : "Adds metadata attributes to the FlowFile",
-          "componentType" : "PROCESSOR",
-          "concurrentlySchedulableTaskCount" : 1,
-          "executionNode" : "ALL",
-          "groupIdentifier" : "78f86132-c0ba-3b6c-bb62-37dedb7c168a",
-          "identifier" : "97b24fb6-349b-337d-8de8-b0300a81ac1a",
-          "instanceIdentifier" : "127b011f-019b-1000-58b0-cbceb7ba62df",
-          "maxBackoffPeriod" : "10 mins",
-          "name" : "UpdateAttribute",
-          "penaltyDuration" : "30 sec",
-          "position" : {
-            "x" : 600.0,
-            "y" : 300.0
-          },
-          "properties" : {
-            "filename" : "message_${UUID()}.json",
-            "Store State" : "Do not store state",
-            "canonical-value-lookup-cache-size" : "100",
-            "source" : "nifi-flow",
-            "processed.at" : "${now():format('yyyy-MM-dd HH:mm:ss')}"
-          },
-          "propertyDescriptors" : {
-            "Delete Attributes Expression" : {
-              "displayName" : "Delete Attributes Expression",
-              "dynamic" : false,
-              "identifiesControllerService" : false,
-              "name" : "Delete Attributes Expression",
-              "sensitive" : false
-            },
-            "filename" : {
-              "displayName" : "filename",
-              "dynamic" : true,
-              "identifiesControllerService" : false,
-              "name" : "filename",
-              "sensitive" : false
-            },
-            "Store State" : {
-              "displayName" : "Store State",
-              "dynamic" : false,
-              "identifiesControllerService" : false,
-              "name" : "Store State",
-              "sensitive" : false
-            },
-            "canonical-value-lookup-cache-size" : {
-              "displayName" : "Cache Value Lookup Cache Size",
-              "dynamic" : false,
-              "identifiesControllerService" : false,
-              "name" : "canonical-value-lookup-cache-size",
-              "sensitive" : false
-            },
-            "source" : {
-              "displayName" : "source",
-              "dynamic" : true,
-              "identifiesControllerService" : false,
-              "name" : "source",
-              "sensitive" : false
-            },
-            "Stateful Variables Initial Value" : {
-              "displayName" : "Stateful Variables Initial Value",
-              "dynamic" : false,
-              "identifiesControllerService" : false,
-              "name" : "Stateful Variables Initial Value",
-              "sensitive" : false
-            },
-            "processed.at" : {
-              "displayName" : "processed.at",
-              "dynamic" : true,
-              "identifiesControllerService" : false,
-              "name" : "processed.at",
-              "sensitive" : false
-            }
-          },
-          "retriedRelationships" : [ ],
-          "retryCount" : 10,
-          "runDurationMillis" : 25,
-          "scheduledState" : "ENABLED",
-          "schedulingPeriod" : "0 sec",
-          "schedulingStrategy" : "TIMER_DRIVEN",
-          "style" : { },
-          "type" : "org.apache.nifi.processors.attributes.UpdateAttribute",
-          "yieldDuration" : "1 sec"
-        }, {
           "autoTerminatedRelationships" : [ ],
           "backoffMechanism" : "PENALIZE_FLOWFILE",
           "bulletinLevel" : "WARN",
@@ -279,9 +202,9 @@
           "componentType" : "PROCESSOR",
           "concurrentlySchedulableTaskCount" : 1,
           "executionNode" : "ALL",
-          "groupIdentifier" : "78f86132-c0ba-3b6c-bb62-37dedb7c168a",
-          "identifier" : "32f1f831-7069-3430-86d9-4e099d27ca0b",
-          "instanceIdentifier" : "127afd61-019b-1000-9033-273c5c13ae57",
+          "groupIdentifier" : "f05a597d-be67-342f-80f4-865a28136b35",
+          "identifier" : "ac90717e-c5b1-32a7-9960-6197f3171b4a",
+          "instanceIdentifier" : "12f57e7e-019b-1000-16e3-a6fcf6ee1c49",
           "maxBackoffPeriod" : "10 mins",
           "name" : "GenerateFlowFile",
           "penaltyDuration" : "30 sec",
@@ -385,9 +308,9 @@
           "componentType" : "PROCESSOR",
           "concurrentlySchedulableTaskCount" : 1,
           "executionNode" : "ALL",
-          "groupIdentifier" : "78f86132-c0ba-3b6c-bb62-37dedb7c168a",
-          "identifier" : "3ab50c04-3fb5-3509-a7ff-98aa996420e6",
-          "instanceIdentifier" : "127b049b-019b-1000-a592-092703572c08",
+          "groupIdentifier" : "f05a597d-be67-342f-80f4-865a28136b35",
+          "identifier" : "e8afc9e9-97b2-3f62-9402-d6cf7755189c",
+          "instanceIdentifier" : "12f585bd-019b-1000-831c-aedb57fdb8af",
           "maxBackoffPeriod" : "10 mins",
           "name" : "LogAttribute",
           "penaltyDuration" : "30 sec",
@@ -485,6 +408,96 @@
           "schedulingStrategy" : "TIMER_DRIVEN",
           "style" : { },
           "type" : "org.apache.nifi.processors.standard.LogAttribute",
+          "yieldDuration" : "1 sec"
+        }, {
+          "autoTerminatedRelationships" : [ ],
+          "backoffMechanism" : "PENALIZE_FLOWFILE",
+          "bulletinLevel" : "WARN",
+          "bundle" : {
+            "artifact" : "nifi-update-attribute-nar",
+            "group" : "org.apache.nifi",
+            "version" : "2.6.0"
+          },
+          "comments" : "Adds metadata attributes to the FlowFile",
+          "componentType" : "PROCESSOR",
+          "concurrentlySchedulableTaskCount" : 1,
+          "executionNode" : "ALL",
+          "groupIdentifier" : "f05a597d-be67-342f-80f4-865a28136b35",
+          "identifier" : "a301c695-b1fd-389a-8822-61e3d30d5550",
+          "instanceIdentifier" : "12f5827a-019b-1000-eb92-697e956a205d",
+          "maxBackoffPeriod" : "10 mins",
+          "name" : "UpdateAttribute",
+          "penaltyDuration" : "30 sec",
+          "position" : {
+            "x" : 600.0,
+            "y" : 300.0
+          },
+          "properties" : {
+            "filename" : "message_${UUID()}.json",
+            "Store State" : "Do not store state",
+            "canonical-value-lookup-cache-size" : "100",
+            "source" : "nifi-flow",
+            "processed.at" : "${now():format('yyyy-MM-dd HH:mm:ss')}"
+          },
+          "propertyDescriptors" : {
+            "Delete Attributes Expression" : {
+              "displayName" : "Delete Attributes Expression",
+              "dynamic" : false,
+              "identifiesControllerService" : false,
+              "name" : "Delete Attributes Expression",
+              "sensitive" : false
+            },
+            "filename" : {
+              "displayName" : "filename",
+              "dynamic" : true,
+              "identifiesControllerService" : false,
+              "name" : "filename",
+              "sensitive" : false
+            },
+            "Store State" : {
+              "displayName" : "Store State",
+              "dynamic" : false,
+              "identifiesControllerService" : false,
+              "name" : "Store State",
+              "sensitive" : false
+            },
+            "canonical-value-lookup-cache-size" : {
+              "displayName" : "Cache Value Lookup Cache Size",
+              "dynamic" : false,
+              "identifiesControllerService" : false,
+              "name" : "canonical-value-lookup-cache-size",
+              "sensitive" : false
+            },
+            "source" : {
+              "displayName" : "source",
+              "dynamic" : true,
+              "identifiesControllerService" : false,
+              "name" : "source",
+              "sensitive" : false
+            },
+            "Stateful Variables Initial Value" : {
+              "displayName" : "Stateful Variables Initial Value",
+              "dynamic" : false,
+              "identifiesControllerService" : false,
+              "name" : "Stateful Variables Initial Value",
+              "sensitive" : false
+            },
+            "processed.at" : {
+              "displayName" : "processed.at",
+              "dynamic" : true,
+              "identifiesControllerService" : false,
+              "name" : "processed.at",
+              "sensitive" : false
+            }
+          },
+          "retriedRelationships" : [ ],
+          "retryCount" : 10,
+          "runDurationMillis" : 25,
+          "scheduledState" : "ENABLED",
+          "schedulingPeriod" : "0 sec",
+          "schedulingStrategy" : "TIMER_DRIVEN",
+          "style" : { },
+          "type" : "org.apache.nifi.processors.attributes.UpdateAttribute",
           "yieldDuration" : "1 sec"
         } ],
         "remoteProcessGroups" : [ ],
