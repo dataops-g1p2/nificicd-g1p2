@@ -74,7 +74,7 @@ jobs:
           
           # Report invalid environments
           if [ ${#INVALID_ENVS[@]} -gt 0 ]; then
-            echo "❌ Invalid environment(s) specified: ${INVALID_ENVS[*]}"
+            echo "Invalid environment(s) specified: ${INVALID_ENVS[*]}"
             echo ""
             echo "Valid options: development, staging, production"
             exit 1
@@ -82,7 +82,7 @@ jobs:
           
           # Check if any valid environments found
           if [ ${#VALID_ENVS[@]} -eq 0 ]; then
-            echo "❌ No valid environments specified"
+            echo "No valid environments specified"
             echo ""
             echo "Valid options: development, staging, production"
             exit 1
@@ -104,12 +104,12 @@ jobs:
           # Determine if multiple environments
           if [ ${#VALID_ENVS[@]} -gt 1 ]; then
             IS_MULTIPLE="true"
-            echo "🗑️ Destroying ${#VALID_ENVS[@]} environments: $ENV_LIST"
+            echo "Destroying ${#VALID_ENVS[@]} environments: $ENV_LIST"
             echo ""
-            echo "⚠️  WARNING: Multiple environments will be destroyed!"
+            echo "WARNING: Multiple environments will be destroyed!"
           else
             IS_MULTIPLE="false"
-            echo "🎯 Destroying: ${VALID_ENVS[0]}"
+            echo "Destroying: ${VALID_ENVS[0]}"
           fi
           
           echo "environments=$JSON_ARRAY" >> $GITHUB_OUTPUT
@@ -119,7 +119,7 @@ jobs:
           echo ""
           echo "Validated environments:"
           for env in "${VALID_ENVS[@]}"; do
-            echo "  ⚠️  $env"
+            echo "$env"
           done
 
   validate-destruction:
@@ -137,18 +137,18 @@ jobs:
       - name: Validate Confirmation
         run: |
           if [ "${{ github.event.inputs.confirm_destruction }}" != "DESTROY" ]; then
-            echo "❌ ERROR: Confirmation text does not match!"
+            echo "ERROR: Confirmation text does not match!"
             echo ""
             echo "You must type exactly: DESTROY"
             echo "You typed: ${{ github.event.inputs.confirm_destruction }}"
             echo ""
-            echo "⚠️  This is a safety measure to prevent accidental destruction."
+            echo "This is a safety measure to prevent accidental destruction."
             exit 1
           fi
           
-          echo "✅ Destruction confirmed"
+          echo "Destruction confirmed"
           echo ""
-          echo "⚠️  WARNING: This will destroy the ${{ matrix.environment }} environment"
+          echo "WARNING: This will destroy the ${{ matrix.environment }} environment"
           echo ""
           
       - name: Set Environment Variables
@@ -255,10 +255,10 @@ jobs:
             VM_IP=$(az vm show -d --resource-group $RG --name $VM_NAME --query publicIps -o tsv)
             echo "vm_exists=true" >> $GITHUB_OUTPUT
             echo "vm_ip=$VM_IP" >> $GITHUB_OUTPUT
-            echo "✅ VM found: $VM_IP"
+            echo "VM found: $VM_IP"
           else
             echo "vm_exists=false" >> $GITHUB_OUTPUT
-            echo "ℹ️ No VM found - skipping backup"
+            echo "No VM found - skipping backup"
           fi
           
       - name: Setup SSH
@@ -336,7 +336,7 @@ jobs:
           tar czf "$BACKUP_NAME.tar.gz" "$BACKUP_NAME"
           rm -rf "$BACKUP_NAME"
           
-          echo "✅ Final backup completed: ~/$BACKUP_DIR_NAME/$BACKUP_NAME.tar.gz"
+          echo "Final backup completed: ~/$BACKUP_DIR_NAME/$BACKUP_NAME.tar.gz"
           ls -lh "$BACKUP_NAME.tar.gz"
           BACKUP_SCRIPT
           
@@ -354,10 +354,10 @@ jobs:
           
           scp -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
             ${{ secrets.VM_USERNAME }}@${{ steps.check_vm.outputs.vm_ip }}:~/$BACKUP_DIR/$BACKUP_NAME.tar.gz \
-            ./final-backup.tar.gz 2>/dev/null || echo "⚠️ Could not download backup"
+            ./final-backup.tar.gz 2>/dev/null || echo "Could not download backup"
             
           if [ -f ./final-backup.tar.gz ]; then
-            echo "✅ Backup downloaded successfully"
+            echo "Backup downloaded successfully"
             ls -lh ./final-backup.tar.gz
           fi
           
@@ -378,9 +378,9 @@ jobs:
           echo " BACKUP COMPLETED"
           echo "=============================="
           echo ""
-          echo "✅ Final backup created and uploaded to GitHub Actions artifacts"
-          echo "📦 Retention: 90 days"
-          echo "🌐 Environment: ${{ matrix.environment }}"
+          echo "Final backup created and uploaded to GitHub Actions artifacts"
+          echo "Retention: 90 days"
+          echo "Environment: ${{ matrix.environment }}"
           echo ""
           echo "To download: Go to Actions → This workflow run → Artifacts"
           echo ""
@@ -428,9 +428,9 @@ jobs:
         if: needs.determine-environments.outputs.is_multiple == 'true' && matrix.environment != 'development'
         run: |
           WAIT_TIME="${{ github.event.inputs.wait_time }}"
-          echo "⏳ Waiting ${WAIT_TIME} seconds before destroying next environment..."
+          echo "Waiting ${WAIT_TIME} seconds before destroying next environment..."
           sleep $WAIT_TIME
-          echo "✅ Wait complete"
+          echo "Wait complete"
         
       - name: Azure Login
         uses: azure/login@v2
@@ -450,7 +450,7 @@ jobs:
           
           if az group exists --name $RG | grep -q "true"; then
             echo "exists=true" >> $GITHUB_OUTPUT
-            echo "✅ Resource group found: $RG"
+            echo "Resource group found: $RG"
             
             # List resources that will be deleted
             echo ""
@@ -458,7 +458,7 @@ jobs:
             az resource list --resource-group $RG --output table || true
           else
             echo "exists=false" >> $GITHUB_OUTPUT
-            echo "ℹ️ Resource group does not exist: $RG"
+            echo "Resource group does not exist: $RG"
             echo "Nothing to destroy"
           fi
           
@@ -467,7 +467,7 @@ jobs:
         run: |
           RG="${{ steps.set_env.outputs.rg }}"
           
-          echo "🗑️ Deleting resource group and all resources..."
+          echo "Deleting resource group and all resources..."
           echo ""
           echo "Resource Group: $RG"
           echo "Environment: ${{ matrix.environment }}"
@@ -475,7 +475,7 @@ jobs:
           
           az group delete --name $RG --yes --no-wait
           
-          echo "✅ Resource group deletion initiated"
+          echo "Resource group deletion initiated"
           echo ""
           echo "Note: Deletion runs asynchronously and may take several minutes"
           
@@ -490,7 +490,7 @@ jobs:
           for i in {1..60}; do
             if ! az group exists --name $RG | grep -q "true"; then
               echo ""
-              echo "✅ Resource group successfully deleted: $RG"
+              echo "Resource group successfully deleted: $RG"
               exit 0
             fi
             echo "Checking deletion status... ($i/60)"
@@ -498,7 +498,7 @@ jobs:
           done
           
           echo ""
-          echo "⚠️ Resource group deletion is still in progress"
+          echo "Resource group deletion is still in progress"
           echo "This is normal for large resource groups"
           echo ""
           echo "Verify deletion manually in Azure Portal or run:"
@@ -515,7 +515,7 @@ jobs:
           echo "=============================="
           echo ""
           echo "Environment: ${{ matrix.environment }}"
-          echo "✅ Resource group deletion initiated: $RG"
+          echo "Resource group deletion initiated: $RG"
           echo ""
           echo "Deleted resources:"
           echo "  • VM: $VM_NAME"
@@ -549,7 +549,7 @@ jobs:
           echo "Cleaning up dynamic GitHub secrets for $ENV..."
           
           if [ -z "$GH_TOKEN" ]; then
-            echo "⚠️ GH_TOKEN not set - cannot clean up secrets automatically"
+            echo "GH_TOKEN not set - cannot clean up secrets automatically"
             echo ""
             echo "Please manually remove these secrets from:"
             echo "  Settings → Environments → $ENV → Environment secrets"
@@ -564,7 +564,7 @@ jobs:
           fi
           
           if ! gh auth status 2>&1 | grep -q "Logged in"; then
-            echo "⚠️ GitHub CLI not authenticated"
+            echo "GitHub CLI not authenticated"
             echo "Skipping automatic secret cleanup"
             exit 0
           fi
@@ -581,14 +581,14 @@ jobs:
           echo "Removing dynamic secrets from $ENV environment..."
           for secret in "${SECRETS_TO_REMOVE[@]}"; do
             if gh secret delete "$secret" --env $ENV 2>/dev/null; then
-              echo "✅ Removed: $secret"
+              echo "Removed: $secret"
             else
-              echo "ℹ️ Skipped: $secret (may not exist)"
+              echo "Skipped: $secret (may not exist)"
             fi
           done
           
           echo ""
-          echo "✅ Dynamic secrets cleaned up from $ENV environment"
+          echo "Dynamic secrets cleaned up from $ENV environment"
           echo ""
           echo "Retained secrets (for future deployments):"
           echo "  - ARM_CLIENT_ID (repository)"
@@ -611,8 +611,8 @@ jobs:
           echo "=============================="
           echo ""
           echo "Environment: ${{ matrix.environment }}"
-          echo "✅ Dynamic IP-based secrets removed"
-          echo "✅ Static configuration secrets retained"
+          echo "Dynamic IP-based secrets removed"
+          echo "Static configuration secrets retained"
           echo ""
           echo "You can redeploy anytime using the existing secrets"
           echo ""
@@ -641,24 +641,24 @@ jobs:
           echo ""
           
           if [ "${{ needs.destroy-infrastructure.result }}" == "success" ]; then
-            echo "✅ All requested environments successfully destroyed"
+            echo "All requested environments successfully destroyed"
             echo ""
             echo "What was destroyed:"
             
             if [[ "${{ needs.determine-environments.outputs.environment_list }}" == *"development"* ]]; then
-              echo "  ✅ Development environment"
+              echo "  Development environment"
               echo "     - Azure VM (vm-nifi-development)"
               echo "     - Resource group (rg-nifi-cicd-dev)"
             fi
             
             if [[ "${{ needs.determine-environments.outputs.environment_list }}" == *"staging"* ]]; then
-              echo "  ✅ Staging environment"
+              echo "  Staging environment"
               echo "     - Azure VM (vm-nifi-staging)"
               echo "     - Resource group (rg-nifi-cicd-staging)"
             fi
             
             if [[ "${{ needs.determine-environments.outputs.environment_list }}" == *"production"* ]]; then
-              echo "  ✅ Production environment"
+              echo "  Production environment"
               echo "     - Azure VM (vm-nifi-production)"
               echo "     - Resource group (rg-nifi-cicd-prod)"
             fi
@@ -675,17 +675,17 @@ jobs:
             echo ""
             
             if [ "${{ github.event.inputs.backup_before_destroy }}" == "true" ]; then
-              echo "📦 Backup Status:"
-              echo "  ✅ Final backups created for all environments"
-              echo "  📁 Available in: Actions → Artifacts"
-              echo "  ⏰ Retention: 90 days"
+              echo "Backup Status:"
+              echo "  Final backups created for all environments"
+              echo "  Available in: Actions → Artifacts"
+              echo "  Retention: 90 days"
               echo ""
             fi
             
             if [ "${{ github.event.inputs.cleanup_secrets }}" == "true" ]; then
-              echo "🔒 Secrets Status:"
-              echo "  ✅ Dynamic secrets removed from all environments"
-              echo "  ✅ Static secrets retained for future deployments"
+              echo "Secrets Status:"
+              echo "  Dynamic secrets removed from all environments"
+              echo "  Static secrets retained for future deployments"
               echo ""
             fi
             
@@ -698,7 +698,7 @@ jobs:
             echo "     - production → 'main' branch"
             echo ""
           else
-            echo "⚠️ Destruction encountered issues"
+            echo "Destruction encountered issues"
             echo ""
             echo "Please check the logs above for details"
             echo ""

@@ -65,7 +65,7 @@ jobs:
           
           # Report invalid environments
           if [ ${#INVALID_ENVS[@]} -gt 0 ]; then
-            echo "❌ Invalid environment(s) specified: ${INVALID_ENVS[*]}"
+            echo "Invalid environment(s) specified: ${INVALID_ENVS[*]}"
             echo ""
             echo "Valid options: development, staging, production"
             exit 1
@@ -73,7 +73,7 @@ jobs:
           
           # Check if any valid environments found
           if [ ${#VALID_ENVS[@]} -eq 0 ]; then
-            echo "❌ No valid environments specified"
+            echo "No valid environments specified"
             echo ""
             echo "Valid options: development, staging, production"
             exit 1
@@ -194,12 +194,12 @@ jobs:
                 echo "Will delete and recreate infrastructure"
               else
                 echo ""
-                echo "=============================="
-                echo " INFRASTRUCTURE ALREADY EXISTS"
-                echo "=============================="
-                echo "Environment: $ENV"
-                echo "VM IP: $VM_IP"
-                echo "=============================="
+                echo "==============================="
+                echo " INFRASTRUCTURE ALREADY EXISTS "
+                echo "==============================="
+                echo " Environment: $ENV             "
+                echo " VM IP: $VM_IP                 "
+                echo "==============================="
               fi
             fi
           fi
@@ -265,16 +265,16 @@ jobs:
             echo "Waiting for deletion to complete..."
             for i in {1..30}; do
               if ! az group exists --name $RG | grep -q "true"; then
-                echo "✅ Resource group deleted"
+                echo "Resource group deleted"
                 exit 0
               fi
               echo "Waiting... ($i/30)"
               sleep 10
             done
             
-            echo "⚠️ Deletion still in progress - continuing anyway"
+            echo "Deletion still in progress - continuing anyway"
           else
-            echo "ℹ️ Resource group does not exist - nothing to delete"
+            echo "Resource group does not exist - nothing to delete"
           fi
 
   setup-secrets:
@@ -302,21 +302,21 @@ jobs:
           if [ -n "${{ secrets.SSH_PUBLIC_KEY }}" ] && [ -n "${{ secrets.SSH_PRIVATE_KEY }}" ]; then
             KEY="${{ secrets.SSH_PUBLIC_KEY }}"
             if [[ "$KEY" =~ ^(ssh-rsa|ssh-ed25519|ecdsa-sha2-nistp256) ]]; then
-              echo "✅ SSH keys already configured in $ENV environment"
+              echo "SSH keys already configured in $ENV environment"
               echo "generated=false" >> $GITHUB_OUTPUT
               exit 0
             fi
           fi
           
-          echo "🔑 Generating new SSH key pair for $ENV..."
+          echo "Generating new SSH key pair for $ENV..."
           
           if [ -z "$GH_TOKEN" ]; then
-            echo "❌ ERROR: GH_TOKEN is required!"
+            echo "ERROR: GH_TOKEN is required!"
             exit 1
           fi
           
           if ! gh auth status 2>&1 | grep -q "Logged in"; then
-            echo "❌ GitHub CLI authentication failed"
+            echo "GitHub CLI authentication failed"
             exit 1
           fi
           
@@ -327,12 +327,12 @@ jobs:
           PUBLIC_KEY=$(cat ~/.ssh/nifi_deploy_key_${ENV}.pub)
           PRIVATE_KEY=$(cat ~/.ssh/nifi_deploy_key_${ENV})
           
-          echo "✅ SSH keys generated for $ENV"
+          echo "SSH keys generated for $ENV"
           
           echo "$PUBLIC_KEY" | gh secret set SSH_PUBLIC_KEY --env $ENV
           echo "$PRIVATE_KEY" | gh secret set SSH_PRIVATE_KEY --env $ENV
           
-          echo "✅ SSH keys saved to $ENV environment secrets"
+          echo "SSH keys saved to $ENV environment secrets"
           echo "generated=true" >> $GITHUB_OUTPUT
 
       - name: Setup Environment-Specific Secrets
@@ -360,7 +360,7 @@ jobs:
           if [ -z "${{ secrets.NIFI_PASSWORD }}" ]; then
             NIFI_PWD=$(openssl rand -hex 16)
             set_secret_if_missing "NIFI_PASSWORD" "$NIFI_PWD"
-            echo "⚠️ NIFI_PASSWORD auto-generated for $ENV"
+            echo "NIFI_PASSWORD auto-generated for $ENV"
           fi
           
           if [ -z "${{ secrets.NIFI_SENSITIVE_KEY }}" ]; then
@@ -376,7 +376,7 @@ jobs:
           set_secret_if_missing "NIFI_REGISTRY_HOST" "0.0.0.0"
           
           echo ""
-          echo "✅ All $ENV environment secrets configured"
+          echo "All $ENV environment secrets configured"
 
   # ========================================================================
   # SEQUENTIAL PROVISIONING JOBS
@@ -464,14 +464,50 @@ jobs:
         run: |
           VM_IP=$(terraform output -raw vm_public_ip)
           echo "ip=$VM_IP" >> $GITHUB_OUTPUT
-          echo "✅ VM Public IP: $VM_IP"
+          echo "VM Public IP: $VM_IP"
           
       - name: Wait for VM to be ready
         run: |
           echo "Waiting for VM to complete initialization..."
           sleep 45
           echo "VM should be ready"
+
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H ${{ steps.get_ip.outputs.ip }} >> ~/.ssh/known_hosts 2>/dev/null || true
           
+      - name: Configure Docker Permissions
+        run: |
+          echo "Configuring Docker permissions for user..."
+          
+          MAX_RETRIES=5
+          for i in $(seq 1 $MAX_RETRIES); do
+            if ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -o ConnectTimeout=30 \
+              ${{ secrets.VM_USERNAME }}@${{ steps.get_ip.outputs.ip }} \
+              "sudo usermod -aG docker ${{ secrets.VM_USERNAME }}"; then
+              echo "User added to docker group"
+              break
+            fi
+            
+            if [ $i -eq $MAX_RETRIES ]; then
+              echo "Warning: Failed to configure docker permissions"
+            else
+              echo "Retry $i/$MAX_RETRIES..."
+              sleep 10
+            fi
+          done
+          
+          echo ""
+          echo "Docker group membership will take effect on next SSH login"
+          
+      - name: Cleanup SSH Keys
+        if: always()
+        run: rm -f ~/.ssh/deploy_key
+
       - name: Update IP-based Secrets
         env:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
@@ -484,19 +520,19 @@ jobs:
           
           # Verify GH_TOKEN is set
           if [ -z "$GH_TOKEN" ]; then
-            echo "❌ ERROR: GH_TOKEN is not set"
+            echo "ERROR: GH_TOKEN is not set"
             echo "Please ensure GH_TOKEN is configured in repository secrets"
             exit 1
           fi
           
           # Verify GitHub CLI authentication
           if ! gh auth status 2>&1 | grep -q "Logged in"; then
-            echo "❌ ERROR: GitHub CLI authentication failed"
+            echo "ERROR: GitHub CLI authentication failed"
             echo "Token may be invalid or expired"
             exit 1
           fi
           
-          echo "✅ GitHub CLI authenticated successfully"
+          echo "GitHub CLI authenticated successfully"
           echo ""
           
           # Update secrets using the repository context
@@ -507,7 +543,7 @@ jobs:
           echo "http://$VM_IP:18080" | gh secret set REGISTRY_URL --env $ENV --repo "$GITHUB_REPOSITORY"
           
           echo ""
-          echo "✅ Dynamic secrets updated for $ENV environment"      
+          echo "Dynamic secrets updated for $ENV environment"      
       
       - name: Set Provision Status
         id: provision_status
@@ -515,10 +551,10 @@ jobs:
         run: |
           if [ "${{ job.status }}" = "success" ]; then
             echo "success=true" >> $GITHUB_OUTPUT
-            echo "✅ Development provisioning completed successfully"
+            echo "Development provisioning completed successfully"
           else
             echo "success=false" >> $GITHUB_OUTPUT
-            echo "❌ Development provisioning failed"
+            echo "Development provisioning failed"
           fi
 
   summary:
@@ -561,58 +597,58 @@ jobs:
           if [[ "${{ needs.determine-environments.outputs.environment_list }}" == *"development"* ]]; then
             TOTAL_COUNT=$((TOTAL_COUNT + 1))
             if [ "$DEV_STATUS" = "success" ]; then
-              echo "  ✅ Development: Success"
+              echo "  Development: Success"
               echo "     IP: ${{ needs.provision-development.outputs.vm_ip }}"
               SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
             elif [ "$DEV_STATUS" = "skipped" ]; then
-              echo "  ⭕️ Development: Skipped"
+              echo "Development: Skipped"
             else
-              echo "  ❌ Development: Failed"
+              echo "Development: Failed"
             fi
           fi
           
           if [[ "${{ needs.determine-environments.outputs.environment_list }}" == *"staging"* ]]; then
             TOTAL_COUNT=$((TOTAL_COUNT + 1))
             if [ "$STAGING_STATUS" = "success" ]; then
-              echo "  ✅ Staging: Success"
+              echo "  Staging: Success"
               echo "     IP: ${{ needs.provision-staging.outputs.vm_ip }}"
               SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
             elif [ "$STAGING_STATUS" = "skipped" ]; then
-              echo "  ⭕️ Staging: Skipped"
+              echo "Staging: Skipped"
             else
-              echo "  ❌ Staging: Failed"
+              echo "Staging: Failed"
             fi
           fi
           
           if [[ "${{ needs.determine-environments.outputs.environment_list }}" == *"production"* ]]; then
             TOTAL_COUNT=$((TOTAL_COUNT + 1))
             if [ "$PROD_STATUS" = "success" ]; then
-              echo "  ✅ Production: Success"
-              echo "     IP: ${{ needs.provision-production.outputs.vm_ip }}"
+              echo "  Production: Success"
+              echo "IP: ${{ needs.provision-production.outputs.vm_ip }}"
               SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
             elif [ "$PROD_STATUS" = "skipped" ]; then
-              echo "  ⭕️ Production: Skipped"
+              echo "Production: Skipped"
             else
-              echo "  ❌ Production: Failed"
+              echo "Production: Failed"
             fi
           fi
           
           echo ""
-          echo "📊 Summary: $SUCCESS_COUNT/$TOTAL_COUNT environments provisioned successfully"
+          echo "Summary: $SUCCESS_COUNT/$TOTAL_COUNT environments provisioned successfully"
           echo ""
           
           if [ "$SUCCESS_COUNT" -eq "$TOTAL_COUNT" ] && [ "$TOTAL_COUNT" -gt 0 ]; then
-            echo "🎉 All requested environments provisioned successfully!"
+            echo "All requested environments provisioned successfully!"
             echo ""
             echo "Next steps:"
             echo "  1. Deploy applications using deployment workflows"
             echo "  2. Access VMs via environment-specific secrets"
             echo "  3. Monitor deployments in GitHub Actions"
           elif [ "$SUCCESS_COUNT" -eq 0 ]; then
-            echo "❌ No environments were provisioned successfully"
+            echo "No environments were provisioned successfully"
             echo "Check the logs above for details on what failed."
           else
-            echo "⚠️ Partial success: Some environments failed"
+            echo "Partial success: Some environments failed"
             echo "Check the logs above for details on failed environments."
           fi
           
@@ -631,9 +667,9 @@ jobs:
       - name: Wait Between Environments
         run: |
           WAIT_TIME="${{ github.event.inputs.wait_time }}"
-          echo "⏳ Waiting ${WAIT_TIME} seconds before provisioning next environment..."
+          echo "Waiting ${WAIT_TIME} seconds before provisioning next environment..."
           sleep $WAIT_TIME
-          echo "✅ Wait complete"
+          echo "Wait complete"
 
   provision-staging:
     name: Provision VM (staging)
@@ -718,14 +754,50 @@ jobs:
         run: |
           VM_IP=$(terraform output -raw vm_public_ip)
           echo "ip=$VM_IP" >> $GITHUB_OUTPUT
-          echo "✅ VM Public IP: $VM_IP"
+          echo "VM Public IP: $VM_IP"
           
       - name: Wait for VM to be ready
         run: |
           echo "Waiting for VM to complete initialization..."
           sleep 45
           echo "VM should be ready"
+
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H ${{ steps.get_ip.outputs.ip }} >> ~/.ssh/known_hosts 2>/dev/null || true
           
+      - name: Configure Docker Permissions
+        run: |
+          echo "Configuring Docker permissions for user..."
+          
+          MAX_RETRIES=5
+          for i in $(seq 1 $MAX_RETRIES); do
+            if ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -o ConnectTimeout=30 \
+              ${{ secrets.VM_USERNAME }}@${{ steps.get_ip.outputs.ip }} \
+              "sudo usermod -aG docker ${{ secrets.VM_USERNAME }}"; then
+              echo "User added to docker group"
+              break
+            fi
+            
+            if [ $i -eq $MAX_RETRIES ]; then
+              echo "Warning: Failed to configure docker permissions"
+            else
+              echo "Retry $i/$MAX_RETRIES..."
+              sleep 10
+            fi
+          done
+          
+          echo ""
+          echo "Docker group membership will take effect on next SSH login"
+          
+      - name: Cleanup SSH Keys
+        if: always()
+        run: rm -f ~/.ssh/deploy_key
+
       - name: Update IP-based Secrets
         env:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
@@ -741,7 +813,7 @@ jobs:
           echo "https://$VM_IP:8443" | gh secret set NIFI_URL --env $ENV
           echo "http://$VM_IP:18080" | gh secret set REGISTRY_URL --env $ENV
           
-          echo "✅ Dynamic secrets updated for $ENV environment"
+          echo "Dynamic secrets updated for $ENV environment"
       
       - name: Set Provision Status
         id: provision_status
@@ -749,10 +821,10 @@ jobs:
         run: |
           if [ "${{ job.status }}" = "success" ]; then
             echo "success=true" >> $GITHUB_OUTPUT
-            echo "✅ Staging provisioning completed successfully"
+            echo "Staging provisioning completed successfully"
           else
             echo "success=false" >> $GITHUB_OUTPUT
-            echo "❌ Staging provisioning failed"
+            echo "Staging provisioning failed"
           fi
 
   wait-after-staging:
@@ -767,9 +839,9 @@ jobs:
       - name: Wait Between Environments
         run: |
           WAIT_TIME="${{ github.event.inputs.wait_time }}"
-          echo "⏳ Waiting ${WAIT_TIME} seconds before provisioning next environment..."
+          echo "Waiting ${WAIT_TIME} seconds before provisioning next environment..."
           sleep $WAIT_TIME
-          echo "✅ Wait complete"
+          echo "Wait complete"
 
   provision-production:
     name: Provision VM (production)
@@ -854,13 +926,49 @@ jobs:
         run: |
           VM_IP=$(terraform output -raw vm_public_ip)
           echo "ip=$VM_IP" >> $GITHUB_OUTPUT
-          echo "✅ VM Public IP: $VM_IP"
+          echo "VM Public IP: $VM_IP"
           
       - name: Wait for VM to be ready
         run: |
           echo "Waiting for VM to complete initialization..."
           sleep 45
           echo "VM should be ready"
+
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H ${{ steps.get_ip.outputs.ip }} >> ~/.ssh/known_hosts 2>/dev/null || true
+          
+      - name: Configure Docker Permissions
+        run: |
+          echo "Configuring Docker permissions for user..."
+          
+          MAX_RETRIES=5
+          for i in $(seq 1 $MAX_RETRIES); do
+            if ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -o ConnectTimeout=30 \
+              ${{ secrets.VM_USERNAME }}@${{ steps.get_ip.outputs.ip }} \
+              "sudo usermod -aG docker ${{ secrets.VM_USERNAME }}"; then
+              echo "User added to docker group"
+              break
+            fi
+            
+            if [ $i -eq $MAX_RETRIES ]; then
+              echo "Warning: Failed to configure docker permissions"
+            else
+              echo "Retry $i/$MAX_RETRIES..."
+              sleep 10
+            fi
+          done
+          
+          echo ""
+          echo "Docker group membership will take effect on next SSH login"
+          
+      - name: Cleanup SSH Keys
+        if: always()
+        run: rm -f ~/.ssh/deploy_key
 
       - name: Update IP-based Secrets
         env:
@@ -874,19 +982,19 @@ jobs:
           
           # Verify GH_TOKEN is set
           if [ -z "$GH_TOKEN" ]; then
-            echo "❌ ERROR: GH_TOKEN is not set"
+            echo "ERROR: GH_TOKEN is not set"
             echo "Please ensure GH_TOKEN is configured in repository secrets"
             exit 1
           fi
           
           # Verify GitHub CLI authentication
           if ! gh auth status 2>&1 | grep -q "Logged in"; then
-            echo "❌ ERROR: GitHub CLI authentication failed"
+            echo "ERROR: GitHub CLI authentication failed"
             echo "Token may be invalid or expired"
             exit 1
           fi
           
-          echo "✅ GitHub CLI authenticated successfully"
+          echo "GitHub CLI authenticated successfully"
           echo ""
           
           # Update secrets using the repository context
@@ -897,7 +1005,7 @@ jobs:
           echo "http://$VM_IP:18080" | gh secret set REGISTRY_URL --env $ENV --repo "$GITHUB_REPOSITORY"
           
           echo ""
-          echo "✅ Dynamic secrets updated for $ENV environment"      
+          echo "Dynamic secrets updated for $ENV environment"      
       
       - name: Set Provision Status
         id: provision_status
@@ -905,8 +1013,8 @@ jobs:
         run: |
           if [ "${{ job.status }}" = "success" ]; then
             echo "success=true" >> $GITHUB_OUTPUT
-            echo "✅ production provisioning completed successfully"
+            echo "production provisioning completed successfully"
           else
             echo "success=false" >> $GITHUB_OUTPUT
-            echo "❌ production provisioning failed"
+            echo "production provisioning failed"
           fi
