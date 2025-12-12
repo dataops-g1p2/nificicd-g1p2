@@ -56,8 +56,6 @@ services:
       - NIFI_JVM_HEAP_MAX=4g
       - JAVA_OPTS=-Djdk.tls.server.enableSNIExtension=false
       - ENVIRONMENT=staging
-      - NIFI_REGISTRY_URL=${REGISTRY_URL}
-      - INITIAL_ADMIN_IDENTITY=${NIFI_USERNAME}
     command: >
       bash -c "
       # Wait for NiFi to initialize config files
@@ -69,11 +67,10 @@ services:
         }
       fi
       
-      # Apply custom bootstrap additions if they exist
-      if [ -f /tmp/bootstrap-additions.conf ] && [ -f /opt/nifi/nifi-current/conf/bootstrap.conf ]; then
+      # Apply custom bootstrap additions
+      if [ -f /opt/nifi/nifi-current/conf/bootstrap.conf ]; then
         if ! grep -q 'bootstrap-additions.conf' /opt/nifi/nifi-current/conf/bootstrap.conf; then
           cat /tmp/bootstrap-additions.conf >> /opt/nifi/nifi-current/conf/bootstrap.conf
-          echo 'Bootstrap additions applied'
         fi
       fi
       
@@ -84,39 +81,6 @@ services:
       if [ ! -f /opt/nifi/nifi-current/conf/hot-reload/variables.properties ]; then
         echo '# Hot-reloadable variables' > /opt/nifi/nifi-current/conf/hot-reload/variables.properties
         echo '# NiFi will automatically reload when this file changes' >> /opt/nifi/nifi-current/conf/hot-reload/variables.properties
-        echo '# Environment: staging' >> /opt/nifi/nifi-current/conf/hot-reload/variables.properties
-        echo 'Hot-reload variables file created'
-      fi
-      
-      # Configure Registry Client if not already configured
-      REGISTRY_CLIENT_FILE='/opt/nifi/nifi-current/conf/registry-clients.xml'
-      if [ ! -f \"\$REGISTRY_CLIENT_FILE\" ] || ! grep -q 'Staging Registry' \"\$REGISTRY_CLIENT_FILE\"; then
-        echo 'Configuring NiFi Registry Client...'
-        cat > \"\$REGISTRY_CLIENT_FILE\" <<'EOF'
-      <?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>
-      <registryClients>
-          <registryClient>
-              <id>staging-registry</id>
-              <name>Staging Registry</name>
-              <url>http://nifi-registry:18080</url>
-              <description>Staging environment NiFi Registry</description>
-          </registryClient>
-      </registryClients>
-      EOF
-        echo 'Registry client configuration created'
-      fi
-      
-      # Validate required environment variables
-      if [ -z \"\$NIFI_PASSWORD\" ] || [ -z \"\$NIFI_SENSITIVE_PROPS_KEY\" ]; then
-        echo 'ERROR: Required environment variables not set!'
-        echo 'Please ensure NIFI_PASSWORD and NIFI_SENSITIVE_PROPS_KEY are configured in .env.staging'
-        exit 1
-      fi
-      
-      # Validate VM infrastructure variables for remote deployment
-      if [ -z \"\$NIFI_WEB_PROXY_HOST\" ]; then
-        echo 'WARNING: NIFI_WEB_PROXY_HOST not set. This may cause issues with remote access.'
-        echo 'Ensure Terraform has populated this value in .env.staging'
       fi
       
       # Start background process to watch for config changes
@@ -130,12 +94,37 @@ services:
         done
       ) &
       
-      echo 'Starting NiFi in staging mode...'
-      echo 'JVM Heap: 4g/4g'
-      echo 'Registry URL: ${REGISTRY_URL}'
-      
       # Start NiFi
       /opt/nifi/scripts/start.sh
       "
     mem_limit: 6g
-    restart: unl
+    restart: unless-stopped
+    volumes:
+      # Configuration (named volume for Docker management)
+      - nifi_conf:/opt/nifi/nifi-current/conf
+      # Data repositories (bind mounts for easy access and debugging)
+      - ./data/nifi_database_repository:/opt/nifi/nifi-current/database_repository
+      - ./data/nifi_flowfile_repository:/opt/nifi/nifi-current/flowfile_repository
+      - ./data/nifi_content_repository:/opt/nifi/nifi-current/content_repository
+      - ./data/nifi_provenance_repository:/opt/nifi/nifi-current/provenance_repository
+      # Extensions, logs, and flows (bind mounts for easy access)
+      - ./data/nifi_nar_extensions:/opt/nifi/nifi-current/nar_extensions
+      - ./data/nifi_python_extensions:/opt/nifi/nifi-current/python_extensions
+      - ./data/nifi_state:/opt/nifi/nifi-current/state
+      - ./data/nifi_logs:/opt/nifi/nifi-current/logs
+      - ./flows:/opt/nifi/nifi-current/flows
+      - ./config/bootstrap-additions.conf:/tmp/bootstrap-additions.conf:ro
+    networks:
+      - nifi_network
+    depends_on:
+      nifi-registry:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-k", "-f", "https://localhost:8443/nifi"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 90s
+    labels:
+      - "com.nifi.environment=staging"
+      - "com.nifi.service=nifi"

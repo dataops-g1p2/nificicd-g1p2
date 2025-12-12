@@ -1,6 +1,7 @@
 name: Provision Infrastructure
 
 on:
+
   workflow_dispatch:
     inputs:
       environments:
@@ -24,6 +25,7 @@ permissions:
   actions: read
 
 jobs:
+
   determine-environments:
     name: Determine Target Environments
     runs-on: ubuntu-22.04
@@ -32,6 +34,7 @@ jobs:
       environment_list: ${{ steps.set_envs.outputs.environment_list }}
       is_multiple: ${{ steps.set_envs.outputs.is_multiple }}
     steps:
+
       - name: Parse and Validate Environments
         id: set_envs
         run: |
@@ -56,13 +59,13 @@ jobs:
           done
           
           if [ ${#INVALID_ENVS[@]} -gt 0 ]; then
-            echo "❌ Invalid environment(s): ${INVALID_ENVS[*]}"
+            echo "Invalid environment(s): ${INVALID_ENVS[*]}"
             echo "Valid options: development, staging, production"
             exit 1
           fi
           
           if [ ${#VALID_ENVS[@]} -eq 0 ]; then
-            echo "❌ No valid environments specified"
+            echo "No valid environments specified"
             exit 1
           fi
           
@@ -77,10 +80,10 @@ jobs:
           
           if [ ${#VALID_ENVS[@]} -gt 1 ]; then
             IS_MULTIPLE="true"
-            echo "🌍 Provisioning ${#VALID_ENVS[@]} environments: $ENV_LIST"
+            echo "Provisioning ${#VALID_ENVS[@]} environments: $ENV_LIST"
           else
             IS_MULTIPLE="false"
-            echo "🎯 Provisioning: ${VALID_ENVS[0]}"
+            echo "Provisioning: ${VALID_ENVS[0]}"
           fi
           
           echo "environments=$JSON_ARRAY" >> $GITHUB_OUTPUT
@@ -107,6 +110,7 @@ jobs:
       infra_exists_staging: ${{ steps.check_infra.outputs.exists_staging }}
       infra_exists_prod: ${{ steps.check_infra.outputs.exists_prod }}
     steps:
+      
       - name: Checkout code
         uses: actions/checkout@v5
         
@@ -163,7 +167,7 @@ jobs:
               
               if [ "${{ github.event.inputs.force_recreate }}" = "true" ]; then
                 echo ""
-                echo "⚠️ FORCE RECREATE REQUESTED"
+                echo "FORCE RECREATE REQUESTED"
               fi
             fi
           fi
@@ -182,6 +186,7 @@ jobs:
       fail-fast: false
     environment: ${{ matrix.environment }}
     steps:
+
       - name: Get Infrastructure Info
         id: get_info
         run: |
@@ -219,15 +224,15 @@ jobs:
             
             for i in {1..30}; do
               if ! az group exists --name $RG | grep -q "true"; then
-                echo "✅ Resource group deleted"
+                echo "Resource group deleted"
                 exit 0
               fi
               echo "Waiting... ($i/30)"
               sleep 10
             done
-            echo "⚠️ Deletion in progress"
+            echo "Deletion in progress"
           else
-            echo "ℹ️ Resource group does not exist"
+            echo "Resource group does not exist"
           fi
 
   setup-secrets:
@@ -240,7 +245,8 @@ jobs:
         environment: ${{ fromJson(needs.determine-environments.outputs.environments) }}
       fail-fast: false
     environment: ${{ matrix.environment }}
-    steps:     
+    steps:  
+
       - name: Checkout code
         uses: actions/checkout@v5
         
@@ -255,16 +261,16 @@ jobs:
           if [ -n "${{ secrets.SSH_PUBLIC_KEY }}" ] && [ -n "${{ secrets.SSH_PRIVATE_KEY }}" ]; then
             KEY="${{ secrets.SSH_PUBLIC_KEY }}"
             if [[ "$KEY" =~ ^(ssh-rsa|ssh-ed25519|ecdsa-sha2-nistp256) ]]; then
-              echo "✅ SSH keys configured"
+              echo "SSH keys configured"
               echo "generated=false" >> $GITHUB_OUTPUT
               exit 0
             fi
           fi
           
-          echo "🔑 Generating SSH keys for $ENV..."
+          echo "Generating SSH keys for $ENV..."
           
           if [ -z "$GH_TOKEN" ]; then
-            echo "❌ GH_TOKEN required"
+            echo "GH_TOKEN required"
             exit 1
           fi
           
@@ -278,7 +284,7 @@ jobs:
           echo "$PUBLIC_KEY" | gh secret set SSH_PUBLIC_KEY --env $ENV
           echo "$PRIVATE_KEY" | gh secret set SSH_PRIVATE_KEY --env $ENV
           
-          echo "✅ SSH keys saved"
+          echo "SSH keys saved"
           echo "generated=true" >> $GITHUB_OUTPUT
 
       - name: Setup Environment Secrets
@@ -299,7 +305,7 @@ jobs:
           
           if [ -z "${{ secrets.NIFI_PASSWORD }}" ]; then
             set_secret "NIFI_PASSWORD" "$(openssl rand -hex 16)"
-            echo "⚠️ NIFI_PASSWORD auto-generated"
+            echo "NIFI_PASSWORD auto-generated"
           fi
           
           if [ -z "${{ secrets.NIFI_SENSITIVE_KEY }}" ]; then
@@ -312,7 +318,7 @@ jobs:
           set_secret "NIFI_ELECTION_MAX_WAIT" "5 min"
           set_secret "NIFI_REGISTRY_HOST" "0.0.0.0"
           
-          echo "✅ All secrets configured"
+          echo "All secrets configured"
 
   provision-development:
     name: Provision VM (development)
@@ -327,7 +333,8 @@ jobs:
     outputs:
       success: ${{ steps.provision_status.outputs.success }}
       vm_ip: ${{ steps.get_ip.outputs.ip }}
-    steps:      
+    steps:    
+
       - name: Checkout code
         uses: actions/checkout@v5
         
@@ -396,7 +403,7 @@ jobs:
         run: |
           VM_IP=$(terraform output -raw vm_public_ip)
           echo "ip=$VM_IP" >> $GITHUB_OUTPUT
-          echo "✅ VM Public IP: $VM_IP"
+          echo "VM Public IP: $VM_IP"
           
       - name: Wait for VM
         run: |
@@ -414,12 +421,12 @@ jobs:
           echo "Updating secrets for $ENV: $VM_IP"
           
           if [ -z "$GH_TOKEN" ]; then
-            echo "❌ GH_TOKEN not set"
+            echo "GH_TOKEN not set"
             exit 1
           fi
           
           if ! gh auth status 2>&1 | grep -q "Logged in"; then
-            echo "❌ GitHub CLI auth failed"
+            echo "GitHub CLI auth failed"
             exit 1
           fi
           
@@ -429,7 +436,7 @@ jobs:
           echo "https://$VM_IP:8443" | gh secret set NIFI_URL --env $ENV --repo "$GITHUB_REPOSITORY"
           echo "http://$VM_IP:18080" | gh secret set REGISTRY_URL --env $ENV --repo "$GITHUB_REPOSITORY"
           
-          echo "✅ Secrets updated"
+          echo "Secrets updated"
       
       - name: Set Status
         id: provision_status
@@ -437,10 +444,10 @@ jobs:
         run: |
           if [ "${{ job.status }}" = "success" ]; then
             echo "success=true" >> $GITHUB_OUTPUT
-            echo "✅ Development provisioned"
+            echo "Development provisioned"
           else
             echo "success=false" >> $GITHUB_OUTPUT
-            echo "❌ Development failed"
+            echo "Development failed"
           fi
 
   wait-after-development:
@@ -452,10 +459,11 @@ jobs:
       needs.determine-environments.outputs.is_multiple == 'true'
     runs-on: ubuntu-22.04
     steps:
+
       - name: Wait
         run: |
           WAIT_TIME="${{ github.event.inputs.wait_time }}"
-          echo "⏳ Waiting ${WAIT_TIME}s..."
+          echo "Waiting ${WAIT_TIME}s..."
           sleep $WAIT_TIME
 
   provision-staging:
@@ -472,7 +480,8 @@ jobs:
     outputs:
       success: ${{ steps.provision_status.outputs.success }}
       vm_ip: ${{ steps.get_ip.outputs.ip }}
-    steps:      
+    steps:   
+
       - name: Checkout code
         uses: actions/checkout@v5
         
@@ -541,7 +550,7 @@ jobs:
         run: |
           VM_IP=$(terraform output -raw vm_public_ip)
           echo "ip=$VM_IP" >> $GITHUB_OUTPUT
-          echo "✅ VM Public IP: $VM_IP"
+          echo "VM Public IP: $VM_IP"
           
       - name: Wait for VM
         run: |
@@ -561,7 +570,7 @@ jobs:
           echo "https://$VM_IP:8443" | gh secret set NIFI_URL --env $ENV
           echo "http://$VM_IP:18080" | gh secret set REGISTRY_URL --env $ENV
           
-          echo "✅ Secrets updated"
+          echo "Secrets updated"
       
       - name: Set Status
         id: provision_status
@@ -569,10 +578,10 @@ jobs:
         run: |
           if [ "${{ job.status }}" = "success" ]; then
             echo "success=true" >> $GITHUB_OUTPUT
-            echo "✅ Staging provisioned"
+            echo "Staging provisioned"
           else
             echo "success=false" >> $GITHUB_OUTPUT
-            echo "❌ Staging failed"
+            echo "Staging failed"
           fi
 
   wait-after-staging:
@@ -584,10 +593,11 @@ jobs:
       needs.determine-environments.outputs.is_multiple == 'true'
     runs-on: ubuntu-22.04
     steps:
+
       - name: Wait
         run: |
           WAIT_TIME="${{ github.event.inputs.wait_time }}"
-          echo "⏳ Waiting ${WAIT_TIME}s..."
+          echo "Waiting ${WAIT_TIME}s..."
           sleep $WAIT_TIME
 
   provision-production:
@@ -604,7 +614,8 @@ jobs:
     outputs:
       success: ${{ steps.provision_status.outputs.success }}
       vm_ip: ${{ steps.get_ip.outputs.ip }}
-    steps:      
+    steps:   
+
       - name: Checkout code
         uses: actions/checkout@v5
         
@@ -673,7 +684,7 @@ jobs:
         run: |
           VM_IP=$(terraform output -raw vm_public_ip)
           echo "ip=$VM_IP" >> $GITHUB_OUTPUT
-          echo "✅ VM Public IP: $VM_IP"
+          echo "VM Public IP: $VM_IP"
           
       - name: Wait for VM
         run: |
@@ -689,12 +700,12 @@ jobs:
           VM_IP="${{ steps.get_ip.outputs.ip }}"
           
           if [ -z "$GH_TOKEN" ]; then
-            echo "❌ GH_TOKEN not set"
+            echo "GH_TOKEN not set"
             exit 1
           fi
           
           if ! gh auth status 2>&1 | grep -q "Logged in"; then
-            echo "❌ GitHub CLI auth failed"
+            echo "GitHub CLI auth failed"
             exit 1
           fi
           
@@ -704,7 +715,7 @@ jobs:
           echo "https://$VM_IP:8443" | gh secret set NIFI_URL --env $ENV --repo "$GITHUB_REPOSITORY"
           echo "http://$VM_IP:18080" | gh secret set REGISTRY_URL --env $ENV --repo "$GITHUB_REPOSITORY"
           
-          echo "✅ Secrets updated"
+          echo "Secrets updated"
       
       - name: Set Status
         id: provision_status
@@ -712,8 +723,8 @@ jobs:
         run: |
           if [ "${{ job.status }}" = "success" ]; then
             echo "success=true" >> $GITHUB_OUTPUT
-            echo "✅ Production provisioned"
+            echo "Production provisioned"
           else
             echo "success=false" >> $GITHUB_OUTPUT
-            echo "❌ Production failed"
+            echo "Production failed"
           fi

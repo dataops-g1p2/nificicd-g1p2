@@ -56,8 +56,6 @@ services:
       - NIFI_JVM_HEAP_MAX=2g
       - JAVA_OPTS=-Djdk.tls.server.enableSNIExtension=false
       - ENVIRONMENT=development
-      - NIFI_REGISTRY_URL=${REGISTRY_URL}
-      - INITIAL_ADMIN_IDENTITY=${NIFI_USERNAME}
     command: >
       bash -c "
       # Wait for NiFi to initialize config files
@@ -69,11 +67,10 @@ services:
         }
       fi
       
-      # Apply custom bootstrap additions if they exist
-      if [ -f /tmp/bootstrap-additions.conf ] && [ -f /opt/nifi/nifi-current/conf/bootstrap.conf ]; then
+      # Apply custom bootstrap additions
+      if [ -f /opt/nifi/nifi-current/conf/bootstrap.conf ]; then
         if ! grep -q 'bootstrap-additions.conf' /opt/nifi/nifi-current/conf/bootstrap.conf; then
           cat /tmp/bootstrap-additions.conf >> /opt/nifi/nifi-current/conf/bootstrap.conf
-          echo 'Bootstrap additions applied'
         fi
       fi
       
@@ -84,33 +81,6 @@ services:
       if [ ! -f /opt/nifi/nifi-current/conf/hot-reload/variables.properties ]; then
         echo '# Hot-reloadable variables' > /opt/nifi/nifi-current/conf/hot-reload/variables.properties
         echo '# NiFi will automatically reload when this file changes' >> /opt/nifi/nifi-current/conf/hot-reload/variables.properties
-        echo '# Environment: development' >> /opt/nifi/nifi-current/conf/hot-reload/variables.properties
-        echo 'Hot-reload variables file created'
-      fi
-      
-      # Configure Registry Client if not already configured
-      REGISTRY_CLIENT_FILE='/opt/nifi/nifi-current/conf/registry-clients.xml'
-      if [ ! -f \"\$REGISTRY_CLIENT_FILE\" ] || ! grep -q 'Development Registry' \"\$REGISTRY_CLIENT_FILE\"; then
-        echo 'Configuring NiFi Registry Client...'
-        cat > \"\$REGISTRY_CLIENT_FILE\" <<'EOF'
-      <?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>
-      <registryClients>
-          <registryClient>
-              <id>development-registry</id>
-              <name>Development Registry</name>
-              <url>http://nifi-registry:18080</url>
-              <description>Development environment NiFi Registry</description>
-          </registryClient>
-      </registryClients>
-      EOF
-        echo 'Registry client configuration created'
-      fi
-      
-      # Validate required environment variables
-      if [ -z \"\$NIFI_PASSWORD\" ] || [ -z \"\$NIFI_SENSITIVE_PROPS_KEY\" ]; then
-        echo 'ERROR: Required environment variables not set!'
-        echo 'Please ensure NIFI_PASSWORD and NIFI_SENSITIVE_PROPS_KEY are configured in .env.development'
-        exit 1
       fi
       
       # Start background process to watch for config changes
@@ -124,7 +94,6 @@ services:
         done
       ) &
       
-      echo 'Starting NiFi in development mode...'
       # Start NiFi
       /opt/nifi/scripts/start.sh
       "
