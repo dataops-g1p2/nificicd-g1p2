@@ -12,7 +12,7 @@ MAKEFLAGS += --no-print-directory
 # ============================================================================
 
 # Project settings
-PROJECT_NAME := nifi-cicd
+PROJECT_NAME := nificicd-g1p2
 DOCKER := docker compose
 
 # Environment configuration

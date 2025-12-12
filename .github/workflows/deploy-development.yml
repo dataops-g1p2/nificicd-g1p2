@@ -1,7 +1,6 @@
 name: Deploy to Development Environment
 
 on: 
-  
   push:
     branches:
       - develop
@@ -27,7 +26,6 @@ jobs:
       registry_changed: ${{ steps.check_changes.outputs.registry_changed }}
       nifi_changed: ${{ steps.check_changes.outputs.nifi_changed }}
     steps:
-
       - name: Checkout code
         uses: actions/checkout@v5
         with:
@@ -44,24 +42,24 @@ jobs:
           # Check if registry-related files changed (including registry flow storage)
           if echo "$CHANGED_FILES" | grep -qE '(data/nifi_registry_flow_storage|data/nifi_registry_database|config/registry)'; then
             REGISTRY_CHANGED=true
-            echo "Registry flow versions or configuration changed"
+            echo "📦 Registry flow versions or configuration changed"
           fi
           
           # Check if NiFi-related files changed (including flows and scripts)
           if echo "$CHANGED_FILES" | grep -qE '(flows/|config/nifi|scripts/)'; then
             NIFI_CHANGED=true
-            echo "NiFi configuration or flows changed"
+            echo "📄 NiFi configuration or flows changed"
           fi
           
           # Check compose file changes
           if echo "$CHANGED_FILES" | grep -q 'compose.development.yml'; then
             if git diff HEAD^ HEAD compose.development.yml | grep -qE '(nifi-registry:|NIFI_REGISTRY)'; then
               REGISTRY_CHANGED=true
-              echo "Registry compose configuration changed"
+              echo "🔧 Registry compose configuration changed"
             fi
             if git diff HEAD^ HEAD compose.development.yml | grep -qE '(nifi:|NIFI_[^R])'; then
               NIFI_CHANGED=true
-              echo "NiFi compose configuration changed"
+              echo "🔧 NiFi compose configuration changed"
             fi
           fi
           
@@ -75,18 +73,16 @@ jobs:
           echo "================================"
           echo ""
           if [ "$REGISTRY_CHANGED" = "true" ]; then
-            echo "ℹRegistry will restart - NiFi will stay running and auto-reconnect"
+            echo "ℹ️  Registry will restart - NiFi will stay running and auto-reconnect"
           fi
           if [ "$NIFI_CHANGED" = "true" ]; then
-            echo "NiFi will restart to apply changes"
+            echo "ℹ️  NiFi will restart to apply changes"
           fi
-
   validate:
     name: Validate Configuration
     runs-on: ubuntu-22.04
     environment: development
     steps:
-
       - name: Checkout code
         uses: actions/checkout@v5
         
@@ -106,20 +102,19 @@ jobs:
           [ -z "${{ secrets.NIFI_SENSITIVE_KEY }}" ] && MISSING_SECRETS+=("NIFI_SENSITIVE_KEY")
           
           if [ ${#MISSING_SECRETS[@]} -gt 0 ]; then
-            echo "Missing required secrets:"
+            echo "❌ Missing required secrets:"
             printf '  - %s\n' "${MISSING_SECRETS[@]}"
             echo ""
             echo "Set these in: Settings → Environments → development → Environment secrets"
             exit 1
           fi
           
-          echo "All required secrets are set"
+          echo "✅ All required secrets are set"
         
       - name: Validate Docker Compose
         run: |
           docker compose -f compose.development.yml config > /dev/null
-          echo "Docker Compose file is valid"
-
+          echo "✅ Docker Compose file is valid"
   check-infrastructure:
     name: Check Infrastructure
     runs-on: ubuntu-22.04
@@ -128,7 +123,6 @@ jobs:
     outputs:
       vm_ip: ${{ steps.get_ip.outputs.ip }}
     steps:
-
       - name: Azure Login
         uses: azure/login@v1
         with:
@@ -150,7 +144,7 @@ jobs:
             -o tsv 2>/dev/null || echo "NotFound")
           
           if [ "$VM_EXISTS" = "NotFound" ]; then
-            echo "Development VM not found!"
+            echo "❌ Development VM not found!"
             echo ""
             echo "Provision infrastructure first:"
             echo "  Actions → 'Provision Infrastructure' → Run workflow → Select 'development'"
@@ -164,18 +158,16 @@ jobs:
             --query publicIps \
             -o tsv)
           
-          [ -z "$VM_IP" ] && echo "Failed to retrieve VM IP" && exit 1
+          [ -z "$VM_IP" ] && echo "❌ Failed to retrieve VM IP" && exit 1
           
           echo "ip=$VM_IP" >> $GITHUB_OUTPUT
-          echo "VM IP: $VM_IP"
-
+          echo "✅ VM IP: $VM_IP"
   deploy:
     name: Deploy to Development
     needs: check-infrastructure
     runs-on: ubuntu-22.04
     environment: development
     steps:
-
       - name: Checkout code
         uses: actions/checkout@v5
         
@@ -197,14 +189,14 @@ jobs:
               -o StrictHostKeyChecking=no \
               -o ConnectTimeout=30 \
               ${{ secrets.VM_USERNAME }}@${{ needs.check-infrastructure.outputs.vm_ip }} \
-              "echo 'SSH connection successful'"; then
+              "echo '✅ SSH connection successful'"; then
               exit 0
             fi
             
             [ $i -lt $MAX_RETRIES ] && sleep $((i * 30))
           done
           
-          echo "SSH connection failed after $MAX_RETRIES attempts"
+          echo "❌ SSH connection failed after $MAX_RETRIES attempts"
           exit 1
           
       - name: Pre-Deployment Backup
@@ -213,11 +205,11 @@ jobs:
           #!/bin/bash
           set -e
           
-          [ ! -d ~/nifi-cicd ] && echo "First deployment - no backup needed" && exit 0
+          [ ! -d ~/nificicd-g1p2 ] && echo "First deployment - no backup needed" && exit 0
           
           BACKUP_DIR=~/development-backups/$(date +%Y%m%d_%H%M%S)
           mkdir -p "$BACKUP_DIR"
-          cd ~/nifi-cicd
+          cd ~/nificicd-g1p2
           
           [ -d "flows" ] && cp -r flows "$BACKUP_DIR/" 2>/dev/null || true
           [ -f "compose.development.yml" ] && cp compose.development.yml "$BACKUP_DIR/" 2>/dev/null || true
@@ -258,7 +250,7 @@ jobs:
             --exclude='data/nifi_nar_extensions/' \
             --exclude='data/nifi_python_extensions/' \
             -e "ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no" \
-            ./ ${{ secrets.VM_USERNAME }}@${{ needs.check-infrastructure.outputs.vm_ip }}:~/nifi-cicd/
+            ./ ${{ secrets.VM_USERNAME }}@${{ needs.check-infrastructure.outputs.vm_ip }}:~/nificicd-g1p2/
           
       - name: Deploy Services
         run: |
@@ -268,7 +260,7 @@ jobs:
           cat > /tmp/deploy.sh <<'DEPLOY_SCRIPT'
           #!/bin/bash
           set -e
-          cd ~/nifi-cicd
+          cd ~/nificicd-g1p2
           
           # Check if containers exist
           CONTAINERS_EXIST=false
@@ -288,7 +280,7 @@ jobs:
             echo "===================================="
             sudo docker pull apache/nifi-registry:2.6.0
             sudo docker compose -f compose.development.yml restart nifi-registry
-            echo "Registry restarted. NiFi is still running and will detect the reconnection."
+            echo "✅ Registry restarted. NiFi is still running and will detect the reconnection."
             sleep 15
             
           elif [ "$NIFI_CHANGED" = "true" ] && [ "$REGISTRY_CHANGED" = "false" ]; then
@@ -335,7 +327,7 @@ jobs:
           
           cat > /tmp/healthcheck.sh <<'HEALTH_SCRIPT'
           #!/bin/bash
-          cd ~/nifi-cicd
+          cd ~/nificicd-g1p2
           
           # Determine if initial deployment
           INITIAL_DEPLOY="false"
@@ -348,11 +340,11 @@ jobs:
               HTTP_CODE=$(curl -k -s -o /dev/null -w "%{http_code}" https://localhost:8443/nifi 2>/dev/null || echo "000")
               
               if [[ "$HTTP_CODE" =~ ^(200|301|302)$ ]]; then
-                echo "NiFi is responding!"
+                echo "✅ NiFi is responding!"
                 break
               fi
               
-              [ $i -eq 30 ] && echo "NiFi health check failed" && sudo docker compose -f compose.development.yml logs --tail=50 nifi && exit 1
+              [ $i -eq 30 ] && echo "❌ NiFi health check failed" && sudo docker compose -f compose.development.yml logs --tail=50 nifi && exit 1
               sleep 10
             done
           fi
@@ -364,16 +356,16 @@ jobs:
               HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:18080/nifi-registry 2>/dev/null || echo "000")
               
               if [[ "$HTTP_CODE" =~ ^(200|301|302)$ ]]; then
-                echo "Registry is responding!"
+                echo "✅ Registry is responding!"
                 break
               fi
               
-              [ $i -eq 15 ] && echo "Registry health check failed" && sudo docker compose -f compose.development.yml logs --tail=50 nifi-registry && exit 1
+              [ $i -eq 15 ] && echo "❌ Registry health check failed" && sudo docker compose -f compose.development.yml logs --tail=50 nifi-registry && exit 1
               sleep 5
             done
           fi
           
-          echo "All health checks passed"
+          echo "✅ All health checks passed"
           HEALTH_SCRIPT
           
           scp -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
@@ -402,7 +394,6 @@ jobs:
       - name: Cleanup SSH Keys
         if: always()
         run: rm -f ~/.ssh/deploy_key
-
   promote-to-staging:
     name: Auto-Promote to Staging
     needs: [deploy, detect-changes]
@@ -413,7 +404,6 @@ jobs:
       needs.deploy.result == 'success'
     
     steps: 
-
       - name: Checkout
         uses: actions/checkout@v5
         with:
@@ -434,15 +424,15 @@ jobs:
             AHEAD=$(git rev-list --count origin/staging..origin/develop)
             
             if [ "$AHEAD" -eq 0 ]; then
-              echo "No changes to promote - staging is up-to-date"
+              echo "ℹ️  No changes to promote - staging is up-to-date"
               echo "has_changes=false" >> $GITHUB_OUTPUT
               exit 0
             fi
             
-            echo "Found $AHEAD commit(s) to promote"
+            echo "📦 Found $AHEAD commit(s) to promote"
             echo "has_changes=true" >> $GITHUB_OUTPUT
           else
-            echo "Creating staging branch for first time"
+            echo "📦 Creating staging branch for first time"
             echo "has_changes=true" >> $GITHUB_OUTPUT
           fi
       
@@ -460,7 +450,7 @@ jobs:
           git checkout staging
           
           # Merge develop into staging
-          echo "Merging develop → staging..."
+          echo "🚀 Merging develop → staging..."
           git merge origin/develop --no-ff -m "chore: auto-promote develop to staging
           Automated promotion after successful development deployment.
           
@@ -469,12 +459,12 @@ jobs:
           Triggered by: ${{ github.actor }}"
           
           # Push to staging branch
-          echo "Pushing to staging branch..."
+          echo "📤 Pushing to staging branch..."
           git push origin staging
           
           echo ""
-          echo "Successfully promoted to staging"
-          echo "Staging deployment workflow will start automatically"
+          echo "✅ Successfully promoted to staging"
+          echo "🚀 Staging deployment workflow will start automatically"
           echo ""
           
       - name: Promotion Summary
@@ -485,9 +475,9 @@ jobs:
           echo " AUTO-PROMOTION COMPLETE"
           echo "=========================================="
           echo ""
-          echo "Development → Staging promotion successful"
+          echo "✅ Development → Staging promotion successful"
           echo ""
-          echo "What happens next:"
+          echo "📊 What happens next:"
           echo "   1. Staging deployment workflow is now running"
           echo "   2. Monitor at: https://github.com/${{ github.repository }}/actions"
           echo "   3. Check staging environment once deployment completes"
@@ -501,5 +491,5 @@ jobs:
           echo " NO PROMOTION NEEDED"
           echo "=========================================="
           echo ""
-          echo "Staging is already up-to-date with develop"
+          echo "ℹ️  Staging is already up-to-date with develop"
           echo "" 
