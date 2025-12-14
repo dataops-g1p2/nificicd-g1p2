@@ -1,6 +1,7 @@
 name: Deploy to Staging Environment
 
 on:
+
   push:
     branches:
       - staging
@@ -27,6 +28,7 @@ jobs:
     runs-on: ubuntu-22.04
     if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.merged == true)
     steps:
+
       - name: Confirm Deployment
         run: |
           if [ "${{ github.event_name }}" = "pull_request" ]; then
@@ -34,6 +36,7 @@ jobs:
           else
             echo "Direct push to staging - proceeding with deployment"
           fi
+
   detect-changes:
     name: Detect Changes
     runs-on: ubuntu-22.04
@@ -42,6 +45,7 @@ jobs:
       registry_changed: ${{ steps.check_changes.outputs.registry_changed }}
       nifi_changed: ${{ steps.check_changes.outputs.nifi_changed }}
     steps:
+
       - name: Checkout code
         uses: actions/checkout@v5
         with:
@@ -100,6 +104,7 @@ jobs:
     runs-on: ubuntu-22.04
     environment: staging
     steps:
+
       - name: Checkout code
         uses: actions/checkout@v5
         
@@ -132,6 +137,7 @@ jobs:
         run: |
           docker compose -f compose.staging.yml config > /dev/null
           echo "Docker Compose file is valid"
+
   check-infrastructure:
     name: Check Infrastructure
     runs-on: ubuntu-22.04
@@ -140,6 +146,7 @@ jobs:
     outputs:
       vm_ip: ${{ steps.get_ip.outputs.ip }}
     steps:
+
       - name: Azure Login
         uses: azure/login@v1
         with:
@@ -186,6 +193,7 @@ jobs:
     runs-on: ubuntu-22.04
     environment: staging
     steps:
+
       - name: Checkout code
         uses: actions/checkout@v5
         
