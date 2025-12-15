@@ -128,3 +128,4 @@ services:
     labels:
       - "com.nifi.environment=development"
       - "com.nifi.service=nifi"
+      
