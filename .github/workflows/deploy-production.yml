@@ -1,0 +1,134 @@
+name: Deploy to Production
+
+on:
+  
+  push:
+    branches:
+      - main
+    paths:
+      - 'scripts/**'
+      - '.github/workflows/deploy-production.yml'
+      - 'compose.production.yml'
+      - 'config/**'
+      - 'registry_data/**'
+      - 'flows/**'
+
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Deployment action'
+        required: true
+        type: choice
+        options:
+          - deploy
+          - rollback
+        default: deploy
+      rollback_tag:
+        description: 'Tag to rollback to (only for rollback)'
+        type: string
+      force_restart:
+        description: 'Force restart NiFi and Registry'
+        type: boolean
+        default: false
+      deploy_flows:
+        description: 'Deploy flow files from Git'
+        type: boolean
+        default: false
+      restart_services:
+        description: 'Restart services'
+        type: boolean
+        default: false
+      skip_release:
+        description: 'Skip creating a release tag'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+
+  validate-rollback:
+    name: Validate Rollback
+    if: github.event.inputs.action == 'rollback'
+    runs-on: ubuntu-22.04
+    steps:
+      
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Validate Tag
+        run: |
+          TAG="${{ github.event.inputs.rollback_tag }}"
+          
+          if [ -z "$TAG" ]; then
+            echo "Rollback tag required"
+            echo "Available tags:"
+            git tag -l "v*" --sort=-version:refname | head -10
+            exit 1
+          fi
+          
+          if ! git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "Tag '$TAG' not found"
+            echo "Available tags:"
+            git tag -l "v*" --sort=-version:refname | head -10
+            exit 1
+          fi
+          
+          echo "Rollback tag '$TAG' is valid"
+          echo "Commit: $(git rev-parse --short $TAG)"
+
+  deploy:
+    name: Deploy Production
+    needs: validate-rollback
+    if: always() && (needs.validate-rollback.result == 'success' || needs.validate-rollback.result == 'skipped')
+    uses: ./.github/workflows/deploy-nifi.yml
+    with:
+      environment: production
+      rollback_tag: ${{ github.event.inputs.action == 'rollback' && github.event.inputs.rollback_tag || '' }}
+      force_restart: ${{ inputs.force_restart || false }}
+      deploy_flows: ${{ inputs.deploy_flows || false }}
+      restart_services: ${{ inputs.restart_services || false }}
+      skip_release: ${{ inputs.skip_release || false }}
+    secrets: inherit
+
+  create-github-release:
+    name: Create GitHub Release
+    needs: deploy
+    if: |
+      needs.deploy.outputs.deployment_successful == 'true' && 
+      needs.deploy.outputs.release_tag != '' &&
+      github.event.inputs.action != 'rollback'
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Create Release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+        with:
+          tag_name: ${{ needs.deploy.outputs.release_tag }}
+          release_name: Production Release ${{ needs.deploy.outputs.release_tag }}
+          body: |
+            ## Production Deployment
+            
+            **Release:** ${{ needs.deploy.outputs.release_tag }}
+            **Deployed:** $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+            **Run:** #${{ github.run_number }}
+            
+            Automated production release via CI/CD pipeline.
+          draft: false
+          prerelease: false
+
+      - name: Summary
+        run: |
+          echo "GitHub Release Created"
+          echo "Tag: ${{ needs.deploy.outputs.release_tag }}"

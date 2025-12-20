@@ -1,0 +1,539 @@
+name: Deploy NiFi (Reusable)
+
+on:
+  
+  workflow_call:
+    inputs:
+      environment:
+        required: true
+        type: string
+        description: 'Target environment (development, staging, production)'
+      force_restart:
+        required: false
+        type: boolean
+        default: false
+      deploy_flows:
+        required: false
+        type: boolean
+        default: false
+      restart_services:
+        required: false
+        type: boolean
+        default: false
+      rollback_tag:
+        required: false
+        type: string
+        description: 'Tag to rollback to (production only)'
+      skip_release:
+        required: false
+        type: boolean
+        default: false
+    outputs:
+      deployment_successful:
+        description: 'Whether deployment succeeded'
+        value: ${{ jobs.deploy.outputs.success }}
+      release_tag:
+        description: 'Release tag created (production only)'
+        value: ${{ jobs.create-release.outputs.tag_name }}
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+
+  get-config:
+    name: Get Environment Config
+    runs-on: ubuntu-22.04
+    outputs:
+      resource_group: ${{ steps.config.outputs.resource_group }}
+      vm_name: ${{ steps.config.outputs.vm_name }}
+      compose_file: ${{ steps.config.outputs.compose_file }}
+      container_suffix: ${{ steps.config.outputs.container_suffix }}
+      backup_dir: ${{ steps.config.outputs.backup_dir }}
+    steps:
+
+      - name: Set Environment Configuration
+        id: config
+        run: |
+          ENV="${{ inputs.environment }}"
+          case $ENV in
+            development)
+              echo "resource_group=rg-nificicd-g1p2-dev" >> $GITHUB_OUTPUT
+              echo "vm_name=vm-nifi-development" >> $GITHUB_OUTPUT
+              echo "container_suffix=dev" >> $GITHUB_OUTPUT
+              echo "backup_dir=development" >> $GITHUB_OUTPUT
+              ;;
+            staging)
+              echo "resource_group=rg-nificicd-g1p2-staging" >> $GITHUB_OUTPUT
+              echo "vm_name=vm-nifi-staging" >> $GITHUB_OUTPUT
+              echo "container_suffix=staging" >> $GITHUB_OUTPUT
+              echo "backup_dir=staging" >> $GITHUB_OUTPUT
+              ;;
+            production)
+              echo "resource_group=rg-nificicd-g1p2-prod" >> $GITHUB_OUTPUT
+              echo "vm_name=vm-nifi-production" >> $GITHUB_OUTPUT
+              echo "container_suffix=production" >> $GITHUB_OUTPUT
+              echo "backup_dir=production" >> $GITHUB_OUTPUT
+              ;;
+          esac
+          echo "compose_file=compose.$ENV.yml" >> $GITHUB_OUTPUT
+
+  detect-changes:
+    name: Detect Changes
+    runs-on: ubuntu-22.04
+    outputs:
+      registry_changed: ${{ steps.changes.outputs.registry_changed }}
+      nifi_changed: ${{ steps.changes.outputs.nifi_changed }}
+      flows_only: ${{ steps.changes.outputs.flows_only }}
+      should_restart: ${{ steps.changes.outputs.should_restart }}
+    steps:
+
+      - name: Checkout code
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 2
+          ref: ${{ inputs.rollback_tag || github.ref }}
+          
+      - name: Analyze Changes
+        id: changes
+        run: |
+          # Skip change detection for rollback
+          if [ -n "${{ inputs.rollback_tag }}" ]; then
+            echo "registry_changed=true" >> $GITHUB_OUTPUT
+            echo "nifi_changed=true" >> $GITHUB_OUTPUT
+            echo "flows_only=false" >> $GITHUB_OUTPUT
+            echo "should_restart=true" >> $GITHUB_OUTPUT
+            echo "Rollback mode - will restart all services"
+            exit 0
+          fi
+          
+          CHANGED_FILES=$(git diff --name-only HEAD^ HEAD 2>/dev/null || echo "")
+          
+          REGISTRY_CHANGED=false
+          NIFI_CHANGED=false
+          FLOWS_ONLY=false
+          
+          echo "Changed files:"
+          echo "$CHANGED_FILES" | while read f; do [ -n "$f" ] && echo "  - $f"; done
+          
+          # Detect flow-only changes
+          if echo "$CHANGED_FILES" | grep -q 'flows/'; then
+            if ! echo "$CHANGED_FILES" | grep -qE '(config/|scripts/|compose\.|registry_data/)'; then
+              FLOWS_ONLY=true
+            fi
+          fi
+          
+          # Infrastructure changes
+          echo "$CHANGED_FILES" | grep -qE '(registry_data/|config/bootstrap-additions\.conf)' && REGISTRY_CHANGED=true
+          echo "$CHANGED_FILES" | grep -qE '(config/|scripts/|compose\.)' && ! echo "$CHANGED_FILES" | grep -q 'registry_data/' && NIFI_CHANGED=true
+          
+          # Determine restart need
+          SHOULD_RESTART=false
+          [ "${{ inputs.force_restart }}" = "true" ] || [ "${{ inputs.restart_services }}" = "true" ] && SHOULD_RESTART=true
+          [ "$REGISTRY_CHANGED" = "true" ] || [ "$NIFI_CHANGED" = "true" ] && SHOULD_RESTART=true
+          [ "$FLOWS_ONLY" = "true" ] && SHOULD_RESTART=false
+          
+          echo "registry_changed=$REGISTRY_CHANGED" >> $GITHUB_OUTPUT
+          echo "nifi_changed=$NIFI_CHANGED" >> $GITHUB_OUTPUT
+          echo "flows_only=$FLOWS_ONLY" >> $GITHUB_OUTPUT
+          echo "should_restart=$SHOULD_RESTART" >> $GITHUB_OUTPUT
+          
+          echo "  Registry: $REGISTRY_CHANGED | NiFi: $NIFI_CHANGED"
+          echo "  Flows only: $FLOWS_ONLY"
+          echo "  Will restart: $SHOULD_RESTART"
+
+  validate:
+    name: Validate Configuration
+    runs-on: ubuntu-22.04
+    needs: [get-config, detect-changes]
+    environment: ${{ inputs.environment }}
+    steps:
+
+      - name: Checkout code
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.rollback_tag || github.ref }}
+        
+      - name: Verify Secrets
+        run: |
+          MISSING=()
+          [ -z "${{ secrets.VM_PUBLIC_IP }}" ] && MISSING+=("VM_PUBLIC_IP")
+          [ -z "${{ secrets.VM_USERNAME }}" ] && MISSING+=("VM_USERNAME")
+          [ -z "${{ secrets.NIFI_USERNAME }}" ] && MISSING+=("NIFI_USERNAME")
+          [ -z "${{ secrets.NIFI_PASSWORD }}" ] && MISSING+=("NIFI_PASSWORD")
+          [ -z "${{ secrets.NIFI_SENSITIVE_PROPS_KEY }}" ] && MISSING+=("NIFI_SENSITIVE_PROPS_KEY")
+          [ -z "${{ secrets.NIFI_WEB_PROXY_HOST }}" ] && MISSING+=("NIFI_WEB_PROXY_HOST")
+          
+          if [ ${#MISSING[@]} -gt 0 ]; then
+            echo "Missing secrets: ${MISSING[*]}"
+            echo "Run 'Provision Infrastructure' first"
+            exit 1
+          fi
+          echo "All secrets verified"
+        
+      - name: Create Temporary .env File for Validation
+        run: |
+          # Show current directory
+          echo "Current directory: $(pwd)"
+          echo "Creating .env.${{ inputs.environment }}"
+          
+          # Create env file
+          ENV_FILE=".env.${{ inputs.environment }}"
+          echo "NIFI_USERNAME=${{ secrets.NIFI_USERNAME }}" > "${ENV_FILE}"
+          echo "NIFI_PASSWORD=${{ secrets.NIFI_PASSWORD }}" >> "${ENV_FILE}"
+          echo "NIFI_SENSITIVE_PROPS_KEY=${{ secrets.NIFI_SENSITIVE_PROPS_KEY }}" >> "${ENV_FILE}"
+          echo "VM_PUBLIC_IP=${{ secrets.VM_PUBLIC_IP }}" >> "${ENV_FILE}"
+          echo "NIFI_WEB_PROXY_HOST=${{ secrets.NIFI_WEB_PROXY_HOST }}" >> "${ENV_FILE}"
+          echo "NIFI_HTTPS_PORT=${{ secrets.NIFI_HTTPS_PORT }}" >> "${ENV_FILE}"
+          echo "NIFI_REGISTRY_PORT=${{ secrets.NIFI_REGISTRY_PORT }}" >> "${ENV_FILE}"
+          
+          # Verify
+          echo "✓ File created"
+          ls -la "${ENV_FILE}"
+          echo "Full path: $(pwd)/${ENV_FILE}"
+          echo ""
+          echo "Compose file location:"
+          ls -la ${{ needs.get-config.outputs.compose_file }}
+        
+      - name: Validate Compose File
+        run: |
+          # Check working directory
+          echo "Working directory: $(pwd)"
+          echo "Checking for .env.${{ inputs.environment }}..."
+          ls -la .env.${{ inputs.environment }} || echo "File not found!"
+          
+          # Check what Docker Compose sees
+          echo ""
+          echo "Files in current directory:"
+          ls -la
+          
+          echo ""
+          echo "Running validation..."
+          docker compose -f ${{ needs.get-config.outputs.compose_file }} config --quiet
+          
+          echo "✓ Validation complete"
+          
+      - name: Cleanup Temporary Files
+        if: always()
+        run: rm -f .env.${{ inputs.environment }}
+
+  check-infrastructure:
+    name: Check Infrastructure
+    runs-on: ubuntu-22.04
+    needs: [get-config, validate]
+    environment: ${{ inputs.environment }}
+    outputs:
+      vm_ip: ${{ steps.get_ip.outputs.ip }}
+    steps:
+
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: |
+            {
+              "clientId": "${{ secrets.ARM_CLIENT_ID }}",
+              "clientSecret": "${{ secrets.ARM_CLIENT_SECRET }}",
+              "subscriptionId": "${{ secrets.ARM_SUBSCRIPTION_ID }}",
+              "tenantId": "${{ secrets.ARM_TENANT_ID }}"
+            }
+            
+      - name: Verify VM Exists
+        id: get_ip
+        run: |
+          VM_IP=$(az vm show \
+            --resource-group ${{ needs.get-config.outputs.resource_group }} \
+            --name ${{ needs.get-config.outputs.vm_name }} \
+            --show-details \
+            --query publicIps \
+            -o tsv 2>/dev/null || echo "")
+          
+          [ -z "$VM_IP" ] && echo "VM not found!" && exit 1
+          
+          echo "ip=$VM_IP" >> $GITHUB_OUTPUT
+          echo "VM IP: $VM_IP"
+
+  create-release:
+    name: Create Release Tag
+    runs-on: ubuntu-22.04
+    needs: [check-infrastructure, detect-changes]
+    if: |
+      inputs.environment == 'production' && 
+      inputs.skip_release != true &&
+      inputs.rollback_tag == ''
+    outputs:
+      tag_name: ${{ steps.tag.outputs.tag_name }}
+      release_notes: ${{ steps.tag.outputs.release_notes }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GH_TOKEN }}
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Generate Version Tag
+        id: tag
+        run: |
+          LATEST=$(git tag -l "v*.*.*" --sort=-version:refname | head -1)
+          
+          if [ -z "$LATEST" ]; then
+            NEW_TAG="v1.0.0"
+          else
+            VERSION=${LATEST#v}
+            IFS='.' read -r MAJ MIN PATCH <<< "$VERSION"
+            NEW_TAG="v${MAJ}.${MIN}.$((PATCH + 1))"
+          fi
+          
+          NOTES="## Production Release $NEW_TAG
+
+          **Deployed:** $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          **Commit:** $(git rev-parse --short HEAD)
+          **Run:** #${{ github.run_number }}
+
+          ### Recent Commits
+          $(git log --oneline --no-decorate -5 | sed 's/^/- /')"
+          
+          git tag -a "$NEW_TAG" -m "Production release $NEW_TAG"
+          git push origin "$NEW_TAG"
+          
+          echo "tag_name=$NEW_TAG" >> $GITHUB_OUTPUT
+          echo "release_notes<<EOF" >> $GITHUB_OUTPUT
+          echo "$NOTES" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+          echo "Created tag: $NEW_TAG"
+
+  deploy:
+    name: Deploy to ${{ inputs.environment }}
+    needs: [get-config, check-infrastructure, detect-changes, create-release]
+    if: always() && needs.check-infrastructure.result == 'success'
+    runs-on: ubuntu-22.04
+    environment: ${{ inputs.environment }}
+    outputs:
+      success: ${{ steps.status.outputs.success }}
+    steps:
+
+      - name: Checkout code
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.rollback_tag || github.ref }}
+
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          
+          # Add VM to known hosts
+          VM_IP="${{ needs.check-infrastructure.outputs.vm_ip }}"
+          ssh-keyscan -H $VM_IP >> ~/.ssh/known_hosts 2>/dev/null || true
+
+      - name: Test SSH Connection
+        run: |
+          VM_IP="${{ needs.check-infrastructure.outputs.vm_ip }}"
+          VM_USER="${{ secrets.VM_USERNAME }}"
+          
+          for i in {1..5}; do
+            if ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+              $VM_USER@$VM_IP "echo 'SSH connected'"; then
+              exit 0
+            fi
+            echo "Attempt $i/5 failed, waiting..."
+            [ $i -lt 5 ] && sleep $((i * 30))
+          done
+          echo "SSH connection failed after 5 attempts"
+          exit 1
+
+      - name: Pre-Deployment Backup
+        if: needs.detect-changes.outputs.should_restart == 'true'
+        run: |
+          VM_IP="${{ needs.check-infrastructure.outputs.vm_ip }}"
+          VM_USER="${{ secrets.VM_USERNAME }}"
+          BACKUP_DIR="${{ needs.get-config.outputs.backup_dir }}"
+          
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+            $VM_USER@$VM_IP \
+            "export BACKUP_DIR='$BACKUP_DIR' && bash -s" <<'EOF'
+          [ ! -d ~/nificicd-g1p2 ] && echo "First deployment" && exit 0
+          
+          BACKUP=~/backups/$BACKUP_DIR/$(date +%Y%m%d_%H%M%S)
+          mkdir -p "$BACKUP"
+          
+          cd ~/nificicd-g1p2
+          [ -d flows ] && cp -r flows "$BACKUP/" && echo "  Backed up flows/"
+          [ -d config ] && cp -r config "$BACKUP/" && echo "  Backed up config/"
+          [ -f ${{ needs.get-config.outputs.compose_file }} ] && cp ${{ needs.get-config.outputs.compose_file }} "$BACKUP/" && echo "  Backed up compose"
+          
+          # Keep last 5 backups
+          cd ~/backups/$BACKUP_DIR
+          ls -t | tail -n +6 | xargs -I {} rm -rf {} 2>/dev/null || true
+          echo "Backup: $BACKUP"
+          EOF
+
+      - name: Fix VM Permissions
+        run: |
+          VM_IP="${{ needs.check-infrastructure.outputs.vm_ip }}"
+          VM_USER="${{ secrets.VM_USERNAME }}"
+          
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+            $VM_USER@$VM_IP "bash -s" <<'EOF'
+          cd ~/nificicd-g1p2
+          
+          # Fix ownership and permissions
+          [ -d registry_data ] && sudo chown -R $(whoami):$(whoami) registry_data/
+          [ -d flows ] && sudo chown -R $(whoami):$(whoami) flows/
+          
+          # Ensure write permissions
+          [ -d registry_data ] && chmod -R u+rwX registry_data/
+          [ -d flows ] && chmod -R u+rwX flows/
+          
+          echo "Permissions fixed"
+          EOF
+
+      - name: Sync Files
+        run: |
+          VM_IP="${{ needs.check-infrastructure.outputs.vm_ip }}"
+          VM_USER="${{ secrets.VM_USERNAME }}"
+          
+          sudo apt-get update -qq && sudo apt-get install -y rsync
+          
+          DEPLOY_FLOWS="${{ inputs.deploy_flows }}"
+          FLOWS_ONLY="${{ needs.detect-changes.outputs.flows_only }}"
+          [ -n "${{ inputs.rollback_tag }}" ] && DEPLOY_FLOWS=true
+          
+          EXCLUDE=(
+            --exclude='.git/' --exclude='.github/' --exclude='azure-vm-terraform/'
+            --exclude='node_modules/' --exclude='*.log' --exclude='.terraform/'
+            --exclude='*.tfstate*' --exclude='.env*' --exclude='data/'
+          )
+          
+          [ "$DEPLOY_FLOWS" = "false" ] && [ "$FLOWS_ONLY" = "false" ] && EXCLUDE+=(--exclude='flows/')
+          
+          echo "Syncing files to $VM_USER@$VM_IP..."
+          
+          rsync -avz "${EXCLUDE[@]}" \
+            -e "ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null" \
+            ./ $VM_USER@$VM_IP:~/nificicd-g1p2/
+          
+          echo "Files synced"
+
+      - name: Deploy Services
+        run: |
+          VM_IP="${{ needs.check-infrastructure.outputs.vm_ip }}"
+          VM_USER="${{ secrets.VM_USERNAME }}"
+          COMPOSE_FILE="${{ needs.get-config.outputs.compose_file }}"
+          
+          SHOULD_RESTART="${{ needs.detect-changes.outputs.should_restart }}"
+          REG_CHG="${{ needs.detect-changes.outputs.registry_changed }}"
+          NIFI_CHG="${{ needs.detect-changes.outputs.nifi_changed }}"
+          [ -n "${{ inputs.rollback_tag }}" ] && SHOULD_RESTART=true REG_CHG=true NIFI_CHG=true
+          
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+            $VM_USER@$VM_IP \
+            "export SHOULD_RESTART='$SHOULD_RESTART' REGISTRY_CHANGED='$REG_CHG' NIFI_CHANGED='$NIFI_CHG' \
+             COMPOSE_FILE='$COMPOSE_FILE' \
+             NIFI_REGISTRY_PORT='${{ secrets.NIFI_REGISTRY_PORT }}' \
+             NIFI_HTTPS_PORT='${{ secrets.NIFI_HTTPS_PORT }}' \
+             NIFI_USERNAME='${{ secrets.NIFI_USERNAME }}' \
+             NIFI_PASSWORD='${{ secrets.NIFI_PASSWORD }}' \
+             NIFI_WEB_PROXY_HOST='${{ secrets.NIFI_WEB_PROXY_HOST }}' \
+             NIFI_SENSITIVE_PROPS_KEY='${{ secrets.NIFI_SENSITIVE_PROPS_KEY }}' && bash -s" <<'EOF'
+          set -e
+          cd ~/nificicd-g1p2
+          
+          if ! sudo docker compose -f "$COMPOSE_FILE" ps 2>/dev/null | grep -q "nifi"; then
+            echo "Initial deployment"
+            sudo docker pull apache/nifi:2.6.0
+            sudo docker pull apache/nifi-registry:2.6.0
+            sudo -E docker compose -f "$COMPOSE_FILE" up -d
+            sleep 30
+          elif [ "$SHOULD_RESTART" = "false" ]; then
+            echo "Files synced - no restart"
+          elif [ "$REGISTRY_CHANGED" = "true" ] && [ "$NIFI_CHANGED" = "false" ]; then
+            echo "Restarting Registry"
+            sudo docker compose -f "$COMPOSE_FILE" restart nifi-registry
+            sleep 30
+          elif [ "$NIFI_CHANGED" = "true" ] && [ "$REGISTRY_CHANGED" = "false" ]; then
+            echo "Restarting NiFi"
+            sudo docker compose -f "$COMPOSE_FILE" restart nifi
+            sleep 30
+          else
+            echo "Restarting both services"
+            sudo docker compose -f "$COMPOSE_FILE" restart
+            sleep 30
+          fi
+          
+          sudo docker compose -f "$COMPOSE_FILE" ps
+          EOF
+
+      - name: Health Check
+        if: needs.detect-changes.outputs.should_restart == 'true'
+        run: |
+          VM_IP="${{ needs.check-infrastructure.outputs.vm_ip }}"
+          VM_USER="${{ secrets.VM_USERNAME }}"
+          SUFFIX="${{ needs.get-config.outputs.container_suffix }}"
+          
+          REG_CHG="${{ needs.detect-changes.outputs.registry_changed }}"
+          NIFI_CHG="${{ needs.detect-changes.outputs.nifi_changed }}"
+          [ -n "${{ inputs.rollback_tag }}" ] && REG_CHG=true NIFI_CHG=true
+          
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+            $VM_USER@$VM_IP \
+            "export REGISTRY_CHANGED='$REG_CHG' NIFI_CHANGED='$NIFI_CHG' SUFFIX='$SUFFIX' && bash -s" <<'EOF'
+          check_health() {
+            local url=$1 max=$2
+            for i in $(seq 1 $max); do
+              HTTP=$(curl -k -s -o /dev/null -w "%{http_code}" $url 2>/dev/null || echo "000")
+              [[ "$HTTP" =~ ^(200|301|302)$ ]] && echo "Responding (HTTP $HTTP)" && return 0
+              [ $((i % 6)) -eq 0 ] && echo "  Waiting... ($i/$max)"
+              sleep 10
+            done
+            echo "Timeout" && return 1
+          }
+          
+          [ "$REGISTRY_CHANGED" = "true" ] && check_health "http://localhost:18080/nifi-registry" 60
+          [ "$NIFI_CHANGED" = "true" ] && check_health "https://localhost:8443/nifi" 90
+          echo "All checks passed"
+          EOF
+
+      - name: Record Deployment
+        if: success() && inputs.environment == 'production'
+        run: |
+          VM_IP="${{ needs.check-infrastructure.outputs.vm_ip }}"
+          VM_USER="${{ secrets.VM_USERNAME }}"
+          TAG="${{ needs.create-release.outputs.tag_name }}"
+          ROLLBACK="${{ inputs.rollback_tag }}"
+          
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+            $VM_USER@$VM_IP \
+            "export TAG='$TAG' ROLLBACK='$ROLLBACK' && bash -s" <<'EOF'
+          cd ~/nificicd-g1p2
+          LOG_ENTRY="[$(date -u +%Y-%m-%d\ %H:%M:%S)] "
+          [ -n "$ROLLBACK" ] && LOG_ENTRY+="ROLLBACK to $ROLLBACK" || LOG_ENTRY+="DEPLOY $TAG"
+          LOG_ENTRY+=" - Run #${{ github.run_number }}"
+          echo "$LOG_ENTRY" >> deployments.log
+          tail -50 deployments.log > deployments.log.tmp && mv deployments.log.tmp deployments.log
+          EOF
+
+      - name: Set Status
+        id: status
+        if: always()
+        run: echo "success=${{ job.status == 'success' }}" >> $GITHUB_OUTPUT
+
+      - name: Cleanup
+        if: always()
+        run: rm -f ~/.ssh/deploy_key
+
+      - name: Summary
+        if: success()
+        run: |
+          echo ""
+          echo "${{ inputs.environment }} DEPLOYMENT SUCCESSFUL"
+          [ -n "${{ inputs.rollback_tag }}" ] && echo "Rollback: ${{ inputs.rollback_tag }}"
+          [ -n "${{ needs.create-release.outputs.tag_name }}" ] && echo "Release: ${{ needs.create-release.outputs.tag_name }}"
+          echo "NiFi:     ${{ secrets.NIFI_URL }}"
+          echo "Registry: ${{ secrets.REGISTRY_URL }}"

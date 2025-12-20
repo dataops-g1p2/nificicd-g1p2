@@ -27,28 +27,28 @@ NC='\033[0m'
 
 # Utility functions
 info() {
-    echo -e "${CYAN}ℹ️  $1${NC}"
+    echo -e "${CYAN}$1${NC}"
 }
 
 success() {
-    echo -e "${GREEN}✅ $1${NC}"
+    echo -e "${GREEN}$1${NC}"
 }
 
 warning() {
-    echo -e "${YELLOW}⚠️  $1${NC}"
+    echo -e "${YELLOW}$1${NC}"
 }
 
 error() {
-    echo -e "${RED}❌ $1${NC}"
+    echo -e "${RED}$1${NC}"
 }
 
 highlight() {
-    echo -e "${MAGENTA}🔗 $1${NC}"
+    echo -e "${MAGENTA}$1${NC}"
 }
 
-echo "═══════════════════════════════════════"
-echo "  NiFi Registry Setup - Enhanced"
-echo "═══════════════════════════════════════"
+echo "══════════════════════════════════"
+echo "  NiFi Registry Setup - Enhanced  "
+echo "══════════════════════════════════"
 info "Registry URL: $REGISTRY_URL"
 info "Registry Client URL: $REGISTRY_CLIENT_URL"
 info "Flows Directory: $FLOWS_DIR"
@@ -82,9 +82,9 @@ echo ""
 create_bucket() {
     local bucket_name=$1
     local description=$2
-    
+
     info "Creating bucket: $bucket_name"
-    
+
     local bucket_data=$(cat <<EOF
 {
   "name": "$bucket_name",
@@ -160,7 +160,7 @@ else
                 warning "  Flow file not found: $FLOWS_DIR/$flow.json (skipping)"
             fi
         done
-        
+
         if [ ${#flow_files[@]} -eq 0 ]; then
             error "None of the specified flows were found"
             exit 1
@@ -170,39 +170,39 @@ else
         flow_files=($(find "$FLOWS_DIR" -maxdepth 1 -name "*.json" -type f 2>/dev/null | sort))
         info "Processing all flows in directory"
     fi
-    
+
     if [ ${#flow_files[@]} -eq 0 ]; then
         warning "No flow files found to process"
     else
         info "Found ${#flow_files[@]} flow file(s) to process"
         echo ""
-        
+
         # List flows
-        echo "📋 Flow Files to Process:"
+        echo "Flow Files to Process:"
         for flow_file in "${flow_files[@]}"; do
             flow_name=$(basename "$flow_file" .json)
             echo "  • $flow_name"
         done
         echo ""
-        
+
         # Create per-flow buckets if enabled
         if [ "$CREATE_PER_FLOW_BUCKETS" = "true" ]; then
             info "Creating individual buckets for each flow..."
             echo ""
-            
+
             bucket_count=0
             for flow_file in "${flow_files[@]}"; do
                 flow_name=$(basename "$flow_file" .json)
-                
+
                 # Convert flow name to bucket-friendly format
                 # Remove special characters, convert to lowercase
                 bucket_name=$(echo "$flow_name" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]/-/g' | sed 's/--*/-/g' | sed 's/^-//;s/-$//')
-                
+
                 # Ensure bucket name is not too long (max 100 chars for safety)
                 if [ ${#bucket_name} -gt 100 ]; then
                     bucket_name="${bucket_name:0:100}"
                 fi
-                
+
                 if create_bucket "$bucket_name" "Bucket for $flow_name flow versions"; then
                     bucket_count=$((bucket_count + 1))
                 fi
@@ -219,9 +219,9 @@ else
 fi
 
 # List all buckets
-echo "═══════════════════════════════════════"
-echo "  Registry Buckets Summary"
-echo "═══════════════════════════════════════"
+echo "════════════════════════════"
+echo "  Registry Buckets Summary  "
+echo "════════════════════════════"
 info "Listing all buckets in registry..."
 echo ""
 
@@ -229,11 +229,11 @@ buckets_response=$(curl -s "$REGISTRY_URL/nifi-registry-api/buckets")
 
 if command -v jq >/dev/null 2>&1; then
     bucket_count=$(echo "$buckets_response" | jq 'length' 2>/dev/null || echo "0")
-    
+
     if [ "$bucket_count" -gt 0 ]; then
         success "Total buckets: $bucket_count"
         echo ""
-        echo "$buckets_response" | jq -r '.[] | "  📦 \(.name)\n     ID: \(.identifier)\n     Created: \(.createdTimestamp | . / 1000 | strftime("%Y-%m-%d %H:%M:%S"))\n"' 2>/dev/null || \
+        echo "$buckets_response" | jq -r '.[] | " \(.name)\n     ID: \(.identifier)\n     Created: \(.createdTimestamp | . / 1000 | strftime("%Y-%m-%d %H:%M:%S"))\n"' 2>/dev/null || \
         echo "$buckets_response" | jq '.'
     else
         warning "No buckets found in registry"
@@ -243,9 +243,9 @@ else
 fi
 
 echo ""
-echo "═══════════════════════════════════════"
-echo "  Next Steps"
-echo "═══════════════════════════════════════"
+echo "══════════════"
+echo "  Next Steps  "
+echo "══════════════"
 echo ""
 echo "1. 🌐 Access NiFi Registry:"
 echo "   ${BLUE}$REGISTRY_URL/nifi-registry${NC}"
@@ -263,39 +263,39 @@ echo "   ${CYAN}   For Azure/Remote:${NC} http://<VM_PUBLIC_IP>:18080"
 echo ""
 echo "   d) Click 'Add' to save"
 echo ""
-echo "3. 📦 Version Control Your Flows:"
+echo "3. Version Control Your Flows:"
 echo "   a) Right-click on any Process Group"
 echo "   b) Select ${CYAN}Version → Start version control${NC}"
 echo "   c) Choose bucket: ${CYAN}$DEFAULT_BUCKET${NC}"
 echo "   d) Enter flow name and commit message"
 echo ""
-echo "4. 📥 Import Flows to Registry:"
+echo "4. Import Flows to Registry:"
 echo "   ${CYAN}make import-flows-auto${NC}  (imports all flows)"
 echo "   ${CYAN}make import-flow FLOW=MyFlow${NC}  (import specific flow)"
 echo ""
-echo "5. 💾 Export Flow from Registry:"
+echo "5. Export Flow from Registry:"
 echo "   ${CYAN}make export-flow-from-registry${NC}"
 echo "   ${CYAN}make export-flows-from-registry${NC}  (export all)"
 echo ""
-echo "6. 🎯 Create Buckets for Specific Flows:"
+echo "6. Create Buckets for Specific Flows:"
 echo "   ${CYAN}make setup-registry-buckets FLOW=MyFlow${NC}  (single flow)"
 echo "   ${CYAN}make setup-registry-buckets FLOWS=Flow1,Flow2${NC}  (multiple flows)"
 echo ""
 
 if [ "$CREATE_PER_FLOW_BUCKETS" = "true" ]; then
-    echo "📌 Per-flow buckets created:"
+    echo "Per-flow buckets created:"
     echo "   You can now version each flow in its own bucket for better organization"
     echo ""
 fi
 
 if [ -n "$SPECIFIC_FLOW" ]; then
     bucket_name=$(echo "$SPECIFIC_FLOW" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]/-/g' | sed 's/--*/-/g' | sed 's/^-//;s/-$//')
-    echo "📌 Bucket created for flow:"
-    echo "   Flow: ${CYAN}$SPECIFIC_FLOW${NC}"
-    echo "   Bucket: ${CYAN}$bucket_name${NC}"
+    echo "Bucket created for flow:"
+    echo "  Flow: ${CYAN}$SPECIFIC_FLOW${NC}"
+    echo "  Bucket: ${CYAN}$bucket_name${NC}"
     echo ""
 elif [ -n "$SPECIFIC_FLOWS" ]; then
-    echo "📌 Buckets created for specified flows:"
+    echo "Buckets created for specified flows:"
     IFS=',' read -ra FLOW_ARRAY <<< "$SPECIFIC_FLOWS"
     for flow in "${FLOW_ARRAY[@]}"; do
         flow=$(echo "$flow" | xargs)
@@ -309,7 +309,7 @@ fi
 CONNECTION_INFO_FILE="$FLOWS_DIR/registry-connection-info.txt"
 cat > "$CONNECTION_INFO_FILE" << EOF
 ═══════════════════════════════════════
-NiFi Registry Connection Information
+ NiFi Registry Connection Information
 ═══════════════════════════════════════
 Generated: $(date '+%Y-%m-%d %H:%M:%S')
 
@@ -342,9 +342,9 @@ EOF
 success "Connection info saved to: $CONNECTION_INFO_FILE"
 echo ""
 
-echo "═══════════════════════════════════════"
-success "NiFi Registry setup complete! 🎉"
-echo "═══════════════════════════════════════"
+echo "════════════════════════════════════"
+success "NiFi Registry setup complete! 🎉 "
+echo "════════════════════════════════════"
 echo ""
 highlight "Registry Client URL for NiFi: ${REGISTRY_CLIENT_URL}"
 echo ""

@@ -138,20 +138,20 @@ log_error() {
 
 log_debug() {
     if [ "$DEBUG" = true ]; then
-        echo -e "${CYAN}🔍${NC} DEBUG: $1" >&2
+        echo -e "${CYAN}[DEBUG]${NC} $1" >&2
     fi
 }
 
 header() {
     echo "" >&2
     echo "╔═══════════════════════════════════════════════╗" >&2
-    echo "║        NiFi Registry Flow Export Tool          ║" >&2
+    echo "║        NiFi Registry Flow Export Tool         ║" >&2
     echo "╚═══════════════════════════════════════════════╝" >&2
     echo "" >&2
 }
 
 print_info() {
-    echo -e "${CYAN}ℹ️${NC}  Configuration:" >&2
+    echo -e "${CYAN}[INFO]${NC}  Configuration:" >&2
     echo "  Registry URL: $REGISTRY_URL" >&2
     echo "  Output Dir:   $OUTPUT_DIR" >&2
     echo "  Auto-commit:  $AUTO_COMMIT" >&2
@@ -211,9 +211,9 @@ display_buckets() {
     fi
     
     echo "" >&2
-    echo "╔═══════════════════════════════════════════════╗" >&2
-    echo "║       Available Buckets in Registry          ║" >&2
-    echo "╚═══════════════════════════════════════════════╝" >&2
+    echo "╔═══════════════════════════════════════════╗" >&2
+    echo "║       Available Buckets in Registry       ║" >&2
+    echo "╚═══════════════════════════════════════════╝" >&2
     echo "" >&2
     
     local count=0
@@ -234,7 +234,7 @@ display_buckets() {
                 created=$(date -d "@$((created / 1000))" '+%Y-%m-%d %H:%M:%S' 2>/dev/null || echo "$created")
             fi
             
-            echo -e "  ${GREEN}📦${NC} ${BLUE}$name${NC}" >&2
+            echo -e "  ${GREEN}[BUCKET]${NC} ${BLUE}$name${NC}" >&2
             echo "     ID: $id" >&2
             echo "     Description: $desc" >&2
             echo "     Created: $created" >&2
@@ -276,9 +276,9 @@ display_flows() {
     fi
     
     echo "" >&2
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
-    echo "     Flows in Bucket: $bucket_name" >&2
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+    echo "      Flows in Bucket: $bucket_name       " >&2
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
     echo "" >&2
     
     local flow_count
@@ -308,7 +308,7 @@ display_flows() {
                 modified=$(date -d "@$((modified / 1000))" '+%Y-%m-%d %H:%M:%S' 2>/dev/null || echo "$modified")
             fi
             
-            echo -e "  ${CYAN}[$index]${NC} ${GREEN}📊${NC} ${BLUE}$name${NC}" >&2
+            echo -e "  ${CYAN}[$index]${NC} ${GREEN}[FLOW]${NC} ${BLUE}$name${NC}" >&2
             echo "       ID: $id" >&2
             echo "       Description: $desc" >&2
             echo "       Last Modified: $modified" >&2
@@ -553,10 +553,10 @@ display_all_versions() {
             ((total_buckets++)) || true
             
             echo ""
-            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
-            echo -e "${MAGENTA}📦 BUCKET:${NC} ${BLUE}$bucket_name${NC}" >&2
-            echo "   ID: $bucket_id" >&2
-            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+            echo -e "${MAGENTA}BUCKET:${NC} ${BLUE}$bucket_name${NC}    " >&2
+            echo "   ID: $bucket_id                                     " >&2
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
             
             local flows
             flows=$(fetch_flows "$bucket_id")
@@ -579,7 +579,7 @@ display_all_versions() {
                     ((total_flows++)) || true
                     
                     echo ""
-                    echo -e "   ${GREEN}📊 FLOW:${NC} ${CYAN}$flow_name${NC}" >&2
+                    echo -e "   ${GREEN}FLOW:${NC} ${CYAN}$flow_name${NC}" >&2
                     echo "      ID: $flow_id" >&2
                     
                     local versions
@@ -632,7 +632,7 @@ display_all_versions() {
     
     echo "" >&2
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
-    echo -e "${GREEN}📊 SUMMARY${NC}" >&2
+    echo -e "${GREEN}SUMMARY${NC}" >&2
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
     echo "   Total Buckets: $total_buckets" >&2
     echo "   Total Flows: $total_flows" >&2
@@ -665,9 +665,9 @@ main() {
         log_info "Fetching all buckets and their flow versions..."
         buckets=$(fetch_buckets)
         echo "" >&2
-        echo "╔═══════════════════════════════════════════════╗" >&2
-        echo "║     All Flows and Versions in Registry      ║" >&2
-        echo "╚═══════════════════════════════════════════════╝" >&2
+        echo "╔════════════════════════════════════════════╗" >&2
+        echo "║     All Flows and Versions in Registry     ║" >&2
+        echo "╚════════════════════════════════════════════╝" >&2
         display_all_versions "$buckets"
         exit 0
     fi

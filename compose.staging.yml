@@ -1,29 +1,47 @@
 networks:
   nifi_network:
     driver: bridge
+    name: nifi_network_staging
 
 volumes:
   nifi_conf:
+    name: nifi_conf_staging
+  nifi_database_repository:
+    name: nifi_database_repository_staging
+  nifi_flowfile_repository:
+    name: nifi_flowfile_repository_staging
+  nifi_content_repository:
+    name: nifi_content_repository_staging
+  nifi_provenance_repository:
+    name: nifi_provenance_repository_staging
+  nifi_state:
+    name: nifi_state_staging
+  nifi_logs:
+    name: nifi_logs_staging
 
 services:
 
   nifi-registry:
     image: apache/nifi-registry:2.6.0
     container_name: nifi-registry-staging
-    hostname: nifi-registry
-    user: root
+    hostname: nifi-registry-staging
+    user: "1000:1000"
+    env_file:
+      - .env.staging
     ports:
       - "${NIFI_REGISTRY_PORT}:18080"
     environment:
-      - NIFI_REGISTRY_WEB_HTTP_PORT=${NIFI_REGISTRY_PORT}
-      - NIFI_REGISTRY_WEB_HTTP_HOST=${NIFI_REGISTRY_HOST}
+      - NIFI_REGISTRY_WEB_HTTP_PORT=18080
+      - NIFI_REGISTRY_WEB_HTTP_HOST=0.0.0.0
       - ENVIRONMENT=staging
+      - TZ=UTC
     mem_limit: 2g
+    mem_reservation: 1g
     restart: unless-stopped
     volumes:
-      - ./data/nifi_registry_database:/opt/nifi-registry/nifi-registry-current/database
-      - ./data/nifi_registry_flow_storage:/opt/nifi-registry/nifi-registry-current/flow_storage
-      - ./flows:/opt/nifi/nifi-current/flows
+      - ./registry_data/nifi_registry_database:/opt/nifi-registry/nifi-registry-current/database
+      - ./registry_data/nifi_registry_flow_storage:/opt/nifi-registry/nifi-registry-current/flow_storage
+      - ./flows:/opt/nifi/nifi-current/flows:ro
     networks:
       - nifi_network
     healthcheck:
@@ -35,84 +53,50 @@ services:
     labels:
       - "com.nifi.environment=staging"
       - "com.nifi.service=registry"
+      - "com.nifi.version=2.6.0"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    security_opt:
+      - no-new-privileges:true
 
   nifi:
     image: apache/nifi:2.6.0
     container_name: nifi-staging
-    hostname: nifi
-    user: root
+    hostname: nifi-staging
+    user: "1000:1000"
+    env_file:
+      - .env.staging
     ports:
       - "${NIFI_HTTPS_PORT}:8443"
     environment:
       - SINGLE_USER_CREDENTIALS_USERNAME=${NIFI_USERNAME}
       - SINGLE_USER_CREDENTIALS_PASSWORD=${NIFI_PASSWORD}
-      - NIFI_WEB_HTTPS_PORT=${NIFI_HTTPS_PORT}
-      - NIFI_WEB_HTTPS_HOST=${NIFI_WEB_HTTPS_HOST}
+      - NIFI_WEB_HTTPS_PORT=8443
+      - NIFI_WEB_HTTPS_HOST=0.0.0.0
       - NIFI_WEB_PROXY_HOST=${NIFI_WEB_PROXY_HOST}
       - NIFI_CLUSTER_IS_NODE=false
-      - NIFI_ELECTION_MAX_WAIT=${NIFI_ELECTION_MAX_WAIT}
       - NIFI_SENSITIVE_PROPS_KEY=${NIFI_SENSITIVE_PROPS_KEY}
       - NIFI_JVM_HEAP_INIT=4g
       - NIFI_JVM_HEAP_MAX=4g
-      - JAVA_OPTS=-Djdk.tls.server.enableSNIExtension=false
+      - JAVA_OPTS=-Djdk.tls.server.enableSNIExtension=false -Djava.security.egd=file:/dev/urandom -XX:+UseG1GC
+      - NIFI_REGISTRY_URL=http://nifi-registry-staging:18080
       - ENVIRONMENT=staging
-    command: >
-      bash -c "
-      # Wait for NiFi to initialize config files
-      if [ ! -f /opt/nifi/nifi-current/conf/bootstrap.conf ]; then
-        echo 'Waiting for NiFi to initialize configuration...'
-        timeout 30 bash -c 'until [ -f /opt/nifi/nifi-current/conf/bootstrap.conf ]; do sleep 1; done' || {
-          echo 'Creating initial configuration from template...'
-          cp -rn /opt/nifi/nifi-current/conf.default/* /opt/nifi/nifi-current/conf/ 2>/dev/null || true
-        }
-      fi
-      
-      # Apply custom bootstrap additions
-      if [ -f /opt/nifi/nifi-current/conf/bootstrap.conf ]; then
-        if ! grep -q 'bootstrap-additions.conf' /opt/nifi/nifi-current/conf/bootstrap.conf; then
-          cat /tmp/bootstrap-additions.conf >> /opt/nifi/nifi-current/conf/bootstrap.conf
-        fi
-      fi
-      
-      # Setup hot-reload directory
-      mkdir -p /opt/nifi/nifi-current/conf/hot-reload
-      
-      # Create default variables.properties if not exists
-      if [ ! -f /opt/nifi/nifi-current/conf/hot-reload/variables.properties ]; then
-        echo '# Hot-reloadable variables' > /opt/nifi/nifi-current/conf/hot-reload/variables.properties
-        echo '# NiFi will automatically reload when this file changes' >> /opt/nifi/nifi-current/conf/hot-reload/variables.properties
-      fi
-      
-      # Start background process to watch for config changes
-      (
-        while true; do
-          if [ -f /opt/nifi/nifi-current/conf/hot-reload/reload-trigger ]; then
-            echo '[Hot Reload] Config change detected - reloading...'
-            rm /opt/nifi/nifi-current/conf/hot-reload/reload-trigger
-          fi
-          sleep 5
-        done
-      ) &
-      
-      # Start NiFi
-      /opt/nifi/scripts/start.sh
-      "
+      - TZ=UTC
     mem_limit: 6g
+    mem_reservation: 4g
     restart: unless-stopped
     volumes:
-      # Configuration (named volume for Docker management)
       - nifi_conf:/opt/nifi/nifi-current/conf
-      # Data repositories (bind mounts for easy access and debugging)
-      - ./data/nifi_database_repository:/opt/nifi/nifi-current/database_repository
-      - ./data/nifi_flowfile_repository:/opt/nifi/nifi-current/flowfile_repository
-      - ./data/nifi_content_repository:/opt/nifi/nifi-current/content_repository
-      - ./data/nifi_provenance_repository:/opt/nifi/nifi-current/provenance_repository
-      # Extensions, logs, and flows (bind mounts for easy access)
-      - ./data/nifi_nar_extensions:/opt/nifi/nifi-current/nar_extensions
-      - ./data/nifi_python_extensions:/opt/nifi/nifi-current/python_extensions
-      - ./data/nifi_state:/opt/nifi/nifi-current/state
-      - ./data/nifi_logs:/opt/nifi/nifi-current/logs
-      - ./flows:/opt/nifi/nifi-current/flows
+      - nifi_database_repository:/opt/nifi/nifi-current/database_repository
+      - nifi_flowfile_repository:/opt/nifi/nifi-current/flowfile_repository
+      - nifi_content_repository:/opt/nifi/nifi-current/content_repository
+      - nifi_provenance_repository:/opt/nifi/nifi-current/provenance_repository
+      - nifi_state:/opt/nifi/nifi-current/state
+      - nifi_logs:/opt/nifi/nifi-current/logs
+      - ./flows:/opt/nifi/nifi-current/flows:ro
       - ./config/bootstrap-additions.conf:/tmp/bootstrap-additions.conf:ro
     networks:
       - nifi_network
@@ -124,7 +108,19 @@ services:
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 90s
+      start_period: 120s
     labels:
       - "com.nifi.environment=staging"
       - "com.nifi.service=nifi"
+      - "com.nifi.version=2.6.0"
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+    security_opt:
+      - no-new-privileges:true
+    ulimits:
+      nofile:
+        soft: 50000
+        hard: 50000

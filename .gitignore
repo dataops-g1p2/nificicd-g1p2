@@ -100,12 +100,13 @@ htmlcov/
 *.yml
 *.yaml
 # Allow specific compose files
+!configure-vm.yml
+!configure-flow-commit-hooks.yml
 !compose.development.yml
 !compose.staging.yml
 !compose.production.yml
-!docker-compose*.yml
-!docker-compose*.yaml
 !compose.local.yml
+
 # CRITICAL: Allow GitHub Actions workflow files!
 !.github/**/*.yml
 !.github/**/*.yaml
@@ -113,7 +114,6 @@ htmlcov/
 # ============================================
 # Environment Variables & Secrets
 # ============================================
-# .env
 .env.*
 
 
@@ -125,6 +125,9 @@ secrets/
 *.p12
 *.pfx
 *.secret
+
+# Flow files (if you want to ignore specific ones)
+MyUseCase1.json
 
 # Azure credentials
 .azure/
@@ -340,5 +343,4 @@ azure-credentials.json
 # SSH Keys Directory
 # ============================================
 ssh-keys/
-
-registry-connection-info.txt
+nifi_data/

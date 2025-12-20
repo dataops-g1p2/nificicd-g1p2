@@ -1,43 +1,43 @@
 networks:
   nifi_network:
     driver: bridge
-    name: nifi_network_dev
+    name: nifi_network_production
 
 volumes:
   nifi_conf:
-    name: nifi_conf_dev
+    name: nifi_conf_production
   nifi_database_repository:
-    name: nifi_database_repository_dev
+    name: nifi_database_repository_production
   nifi_flowfile_repository:
-    name: nifi_flowfile_repository_dev
+    name: nifi_flowfile_repository_production
   nifi_content_repository:
-    name: nifi_content_repository_dev
+    name: nifi_content_repository_production
   nifi_provenance_repository:
-    name: nifi_provenance_repository_dev
+    name: nifi_provenance_repository_production
   nifi_state:
-    name: nifi_state_dev
+    name: nifi_state_production
   nifi_logs:
-    name: nifi_logs_dev
+    name: nifi_logs_production
 
 services:
 
   nifi-registry:
     image: apache/nifi-registry:2.6.0
-    container_name: nifi-registry-dev
-    hostname: nifi-registry-dev
+    container_name: nifi-registry-production
+    hostname: nifi-registry-production
     user: "1000:1000"
     env_file:
-      - .env.development
+      - .env.production
     ports:
       - "${NIFI_REGISTRY_PORT}:18080"
     environment:
       - NIFI_REGISTRY_WEB_HTTP_PORT=18080
       - NIFI_REGISTRY_WEB_HTTP_HOST=0.0.0.0
-      - ENVIRONMENT=development
+      - ENVIRONMENT=production
       - TZ=UTC
-    mem_limit: 2g
-    mem_reservation: 1g
-    restart: unless-stopped
+    mem_limit: 4g
+    mem_reservation: 2g
+    restart: always
     volumes:
       - ./registry_data/nifi_registry_database:/opt/nifi-registry/nifi-registry-current/database
       - ./registry_data/nifi_registry_flow_storage:/opt/nifi-registry/nifi-registry-current/flow_storage
@@ -51,24 +51,24 @@ services:
       retries: 3
       start_period: 180s
     labels:
-      - "com.nifi.environment=development"
+      - "com.nifi.environment=production"
       - "com.nifi.service=registry"
       - "com.nifi.version=2.6.0"
     logging:
       driver: json-file
       options:
-        max-size: "10m"
-        max-file: "5"
+        max-size: "100m"
+        max-file: "10"
     security_opt:
       - no-new-privileges:true
 
   nifi:
     image: apache/nifi:2.6.0
-    container_name: nifi-dev
-    hostname: nifi-dev
+    container_name: nifi-production
+    hostname: nifi-production
     user: "1000:1000"
     env_file:
-      - .env.development
+      - .env.production
     ports:
       - "${NIFI_HTTPS_PORT}:8443"
     environment:
@@ -79,15 +79,15 @@ services:
       - NIFI_WEB_PROXY_HOST=${NIFI_WEB_PROXY_HOST}
       - NIFI_CLUSTER_IS_NODE=false
       - NIFI_SENSITIVE_PROPS_KEY=${NIFI_SENSITIVE_PROPS_KEY}
-      - NIFI_JVM_HEAP_INIT=2g
-      - NIFI_JVM_HEAP_MAX=2g
-      - JAVA_OPTS=-Djdk.tls.server.enableSNIExtension=false -Djava.security.egd=file:/dev/urandom
-      - NIFI_REGISTRY_URL=http://nifi-registry-dev:18080
-      - ENVIRONMENT=development
+      - NIFI_JVM_HEAP_INIT=5g
+      - NIFI_JVM_HEAP_MAX=5g
+      - JAVA_OPTS=-Djdk.tls.server.enableSNIExtension=false -Djava.security.egd=file:/dev/urandom -XX:+UseG1GC -XX:MaxGCPauseMillis=200
+      - NIFI_REGISTRY_URL=http://nifi-registry-production:18080
+      - ENVIRONMENT=production
       - TZ=UTC
-    mem_limit: 4g
-    mem_reservation: 2g
-    restart: unless-stopped
+    mem_limit: 8g
+    mem_reservation: 5g
+    restart: always
     volumes:
       - nifi_conf:/opt/nifi/nifi-current/conf
       - nifi_database_repository:/opt/nifi/nifi-current/database_repository
@@ -110,14 +110,14 @@ services:
       retries: 3
       start_period: 300s
     labels:
-      - "com.nifi.environment=development"
+      - "com.nifi.environment=production"
       - "com.nifi.service=nifi"
       - "com.nifi.version=2.6.0"
     logging:
       driver: json-file
       options:
-        max-size: "50m"
-        max-file: "5"
+        max-size: "100m"
+        max-file: "10"
     security_opt:
       - no-new-privileges:true
     ulimits:

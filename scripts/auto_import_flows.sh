@@ -40,19 +40,19 @@ debug() {
 }
 
 error() {
-    echo -e "${RED}❌ [ERROR] $1${NC}" >&2
+    echo -e "${RED}[ERROR] $1${NC}" >&2
 }
 
 success() {
-    echo -e "${GREEN}✅ $1${NC}"
+    echo -e "${GREEN}[SUCCESS] $1${NC}"
 }
 
 info() {
-    echo -e "${CYAN}ℹ️  $1${NC}" >&2
+    echo -e "${CYAN}[INFO] $1${NC}" >&2
 }
 
 warning() {
-    echo -e "${YELLOW}⚠️  $1${NC}" >&2
+    echo -e "${YELLOW}[WARNING] $1${NC}" >&2
 }
 
 show_usage() {
@@ -294,7 +294,7 @@ wait_for_nifi() {
         return 1
     fi
     
-    echo -e "${YELLOW}⏳ Waiting for NiFi authentication to be ready...${NC}"
+    echo -e "${YELLOW}Waiting for NiFi authentication to be ready...${NC}"
     auth_attempts=0
     max_auth_attempts=20
     
@@ -989,13 +989,13 @@ for FLOW_FILE in "${FLOW_FILES[@]}"; do
         success "✅ Flow '$(basename "$FLOW_FILE" .json)' imported successfully!"
     else
         FAIL_COUNT=$((FAIL_COUNT + 1))
-        error "❌ Failed to import flow '$(basename "$FLOW_FILE" .json)'"
+        error "Failed to import flow '$(basename "$FLOW_FILE" .json)'"
     fi
     echo ""
 done
 
 echo "╔════════════════════════════╗"
-echo " Import Summary"
+echo "  Import Summary              "
 echo "╚════════════════════════════╝"
 success "Successfully Imported: $SUCCESS_COUNT"
 if [ $FAIL_COUNT -gt 0 ]; then

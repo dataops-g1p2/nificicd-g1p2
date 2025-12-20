@@ -1,148 +1,92 @@
-# ============================================================================
-# ROOT MAKEFILE: NiFi CI/CD Infrastructure Manager
-# ============================================================================
-# Manages local Docker environment and delegates infrastructure operations
-# Location: ./Makefile
-# Version: 2.0.0
+# ==================================================
+#  ROOT MAKEFILE: NiFi CI/CD Infrastructure Manager
+# ==================================================
 
 MAKEFLAGS += --no-print-directory
 
-# ============================================================================
-# CONFIGURATION
-# ============================================================================
-
 # Project settings
 PROJECT_NAME := nificicd-g1p2
-DOCKER := docker compose
 
 # Environment configuration
-ENV ?= local
-ENV_MAP_local := local
-ENV_MAP_dev := development
-ENV_MAP_development := development
-ENV_MAP_staging := staging
-ENV_MAP_prod := production
-ENV_MAP_production := production
+ENV ?= development
 
-WORKSPACE := $(or $(ENV_MAP_$(ENV)),$(ENV))
-ENV_FILE := $(if $(filter local,$(WORKSPACE)),.env,.env.$(WORKSPACE))
+# Map environment aliases to actual workspace names
+ifeq ($(ENV),dev)
+WORKSPACE := development
+else ifeq ($(ENV),stg)
+WORKSPACE := staging
+else ifeq ($(ENV),staging)
+WORKSPACE := staging
+else ifeq ($(ENV),prod)
+WORKSPACE := production
+else ifeq ($(ENV),production)
+WORKSPACE := production
+else ifeq ($(ENV),development)
+WORKSPACE := development
+else
+WORKSPACE := $(ENV)
+endif
+
+ENV_FILE := .env.$(WORKSPACE)
 
 # SSH Key Configuration
-SSH_KEY_PATHS := $(HOME)/.ssh/nifi_vm_key \
-                 $(HOME)/.ssh/nifi_deploy_key \
-                 $(HOME)/.ssh/id_rsa \
-                 $(HOME)/.ssh/id_ed25519
-
-# ============================================================================
-# COLORS & FORMATTING
-# ============================================================================
-
-BLUE := \033[0;34m
-GREEN := \033[0;32m
-YELLOW := \033[1;33m
-RED := \033[0;31m
-CYAN := \033[0;36m
-MAGENTA := \033[0;35m
-BOLD := \033[1m
-NC := \033[0m
-
-# Box drawing characters
-BOX_H := ═
-BOX_V := ║
-BOX_TL := ╔
-BOX_TR := ╗
-BOX_BL := ╚
-BOX_BR := ╝
-BOX_VR := ╠
-BOX_VL := ╣
-BOX_HU := ╩
-BOX_HD := ╦
-
-# Symbols
-CHECK := ✓
-CROSS := ✗
-ARROW := →
-BULLET := •
-WARNING := ⚠
-INFO := ℹ
-ROCKET := 🚀
-WRENCH := 🔧
-LOCK := 🔒
-KEY := 🔑
-PACKAGE := 📦
-CHART := 📊
-CLOUD := ☁
-LAPTOP := 💻
-
-# ============================================================================
-# PHONY TARGETS
-# ============================================================================
+SSH_KEY_PATHS := $(HOME)/.ssh/deploy_key
 
 .PHONY: help \
-        setup-password setup-passwords clean-generated-info clean-generated-info-all \
-        echo-info-access echo-info-access-all validate-env \
-        up down restart status logs logs-nifi logs-registry clean-volumes prune \
-        setup-registry setup-registry-buckets setup-registry-default registry-info \
-        import-flows-auto import-flow import-flows-pattern list-flows \
-        export-flow-from-registry export-flows-from-registry export-flow-with-commit \
-        export-flow-by-id list-registry-buckets list-registry-flows list-registry-versions \
-        show-registry-ids \
-        ssh-dev ssh-staging ssh-prod \
-        health-check health-check-all \
-        backup-flows restore-flows
+	setup-password setup-passwords clean-generated-info clean-generated-info-all \
+	echo-info-access echo-info-access-all validate-env \
+	up down restart status logs logs-nifi logs-registry clean-volumes prune \
+	setup-registry setup-registry-buckets setup-registry-default registry-info \
+	import-flows-auto import-flow import-flows-pattern list-flows \
+	export-flow-from-registry export-flows-from-registry export-flow-with-commit \
+	export-flow-by-id list-registry-buckets list-registry-flows list-registry-versions \
+	show-registry-ids \
+	ssh-dev ssh-staging ssh-prod \
+	health-check health-check-all \
+	backup-flows restore-flows
 
-.DEFAULT_GOAL := help
-
-# ============================================================================
-# HELP TARGET
-# ============================================================================
 help:
 	@echo ""
-	@echo "$(BOX_TL)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_TR)"
-	@echo "$(BOX_V)    $(BOLD)NiFi CI/CD Infrastructure Manager$(NC)             $(BOX_V)"
-	@echo "$(BOX_BL)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_H)$(BOX_BR)"
+	@echo "NiFi CI/CD Infrastructure Manager"
+	@echo "=================================="
 	@echo ""
-	@echo "$(CYAN)$(BOLD)Usage:$(NC) make <target> [ENV=<environment>]"
+	@echo "Usage: make <target> [ENV=<environment>]"
 	@echo ""
-	@echo "$(YELLOW)$(BOLD)Environments:$(NC)"
-	@echo "  $(LAPTOP) local           Local Docker environment (default)"
-	@echo "  $(WRENCH) dev/development Azure development environment"
-	@echo "  🎭 staging          Azure staging environment"
-	@echo "  $(ROCKET) prod/production Azure production environment"
+	@echo "Environments:"
+	@echo "  dev/development Azure development environment (default)"
+	@echo "  staging         Azure staging environment"
+	@echo "  prod/production Azure production environment"
 	@echo ""
 	@$(call print_section,"SETUP & CONFIGURATION")
 	@echo "  setup-password              Generate NiFi password and keys for ENV"
-	@echo "  setup-passwords             Generate passwords for all environments"
 	@echo "  validate-env                Validate environment configuration"
 	@echo "  clean-generated-info        Clean generated info from env files"
-	@echo "  clean-generated-info-all    Clean all environments"
 	@echo "  echo-info-access            Show access info for environment"
-	@echo "  echo-info-access-all        Show access info for all environments"
+	@echo "  health-check                Check environment health"
 	@echo ""
-	@$(call print_section,"LOCAL DOCKER ENVIRONMENT")
-	@echo "  up                          Start local NiFi environment"
-	@echo "  down                        Stop local NiFi environment"
-	@echo "  restart                     Restart local NiFi environment"
-	@echo "  status                      Show container status"
+	@$(call print_section,"VM DOCKER MANAGEMENT")
+	@echo "  up                          Start NiFi services on VM"
+	@echo "  down                        Stop NiFi services on VM"
+	@echo "  restart                     Restart NiFi services on VM"
+	@echo "  status                      Show container status on VM"
 	@echo "  logs                        Tail all container logs"
 	@echo "  logs-nifi                   Tail NiFi container logs"
 	@echo "  logs-registry               Tail Registry container logs"
-	@echo "  clean-volumes               Remove Docker volumes"
-	@echo "  prune                       Deep clean Docker resources"
-	@echo "  health-check                Check local environment health"
+	@echo "  clean-volumes               Remove Docker volumes on VM"
+	@echo "  prune                       Deep clean Docker resources on VM"
 	@echo ""
 	@$(call print_section,"NIFI REGISTRY SETUP")
-	@echo "  setup-registry-buckets      Setup Registry with per-flow buckets"
-	@echo "  setup-registry-default      Setup Registry with single bucket"
-	@echo "  registry-info               Show registry information"
+	@echo "  setup-registry-buckets FLOW=<name>       Setup Registry with per-flow buckets"
+	@echo "  setup-registry-default                   Setup Registry with single bucket"
+	@echo "  registry-info                            Show registry information"
 	@echo ""
-	@$(call print_section,"FLOW MANAGEMENT - IMPORT (Local → Registry)")
-	@echo "  import-flows-auto           Auto-import all flows to Registry"
-	@echo "  import-flow FLOW=<name>     Import specific flow"
-	@echo "  import-flows-pattern        Import flows matching PATTERN"
-	@echo "  list-flows                  List available flows"
+	@$(call print_section,"FLOW MANAGEMENT - IMPORT (Local -> Registry)")
+	@echo "  import-flows-auto                             Auto-import all flows to Registry"
+	@echo "  import-flow FLOW=<name>                       Import specific flow"
+	@echo "  import-flows-pattern PATTERN=<pattern>        Import flows matching PATTERN"
+	@echo "  list-flows                                    List available flows"
 	@echo ""
-	@$(call print_section,"FLOW MANAGEMENT - EXPORT (Registry → Local)")
+	@$(call print_section,"FLOW MANAGEMENT - EXPORT (Registry -> Local)")
 	@echo "  export-flow-from-registry   Export single flow (interactive)"
 	@echo "  export-flows-from-registry  Export all flows from Registry"
 	@echo "  export-flow-with-commit     Export all flows and commit to Git"
@@ -163,54 +107,81 @@ help:
 	@echo "  backup-flows                Backup flows directory"
 	@echo "  restore-flows               Restore flows from backup"
 	@echo ""
-	@echo "$(CYAN)$(BOLD)Examples:$(NC)"
-	@echo "  make up                                    # Start local environment"
-	@echo "  make setup-registry-buckets                # Setup registry"
-	@echo "  make import-flows-auto                     # Import all flows"
-	@echo "  make import-flow FLOW=MyFlow               # Import specific flow"
+	@echo "Examples:"
+	@echo "  make setup-password ENV=dev                # Setup dev credentials"
+	@echo "  make up ENV=staging                        # Start staging services"
+	@echo "  make status ENV=prod                       # Check production status"
+	@echo "  make setup-registry-buckets ENV=staging    # Setup staging registry"
+	@echo "  make import-flows-auto ENV=prod            # Import flows to prod"
+	@echo "  make import-flow FLOW=MyFlow ENV=dev       # Import specific flow"
+	@echo "  make logs-nifi ENV=dev                     # View dev NiFi logs"
 	@echo "  make echo-info-access ENV=dev              # Show dev environment info"
 	@echo "  make ssh-dev                               # SSH to dev VM"
 	@echo ""
 
-define print_section   # Helper function to print section headers
-	@echo "$(GREEN)$(BOLD)────────────────────────────────────────────────────────$(NC)"
-	@echo "$(GREEN)$(BOLD)  $(1)$(NC)"
-	@echo "$(GREEN)$(BOLD)────────────────────────────────────────────────────────$(NC)"
+define print_section
+	@echo "------------------------------------------------------------"
+	@echo "  $(1)"
+	@echo "------------------------------------------------------------"
 endef
-# ============================================================================
+
+# ==================================================
 # ENVIRONMENT VALIDATION
-# ============================================================================
+# ==================================================
 validate-env:
 	@echo ""
-	@echo "$(BLUE)$(INFO) Validating $(WORKSPACE) environment...$(NC)"
+	@echo "Validating $(WORKSPACE) environment..."
 	@echo ""
 	@if [ ! -f "$(ENV_FILE)" ]; then \
-		echo "$(RED)$(CROSS) $(ENV_FILE) not found$(NC)"; \
+		echo "[ERROR] $(ENV_FILE) not found"; \
 		echo ""; \
-		echo "$(YELLOW)Create from template:$(NC)"; \
+		echo "Available environment files:"; \
+		ls -1 .env.* 2>/dev/null | sed 's/^/  - /' || echo "  (none found)"; \
+		echo ""; \
+		echo "Create from template:"; \
 		echo "  cp .env.template $(ENV_FILE)"; \
+		echo ""; \
+		echo "Or generate credentials:"; \
+		echo "  make setup-password ENV=$(ENV)"; \
 		exit 1; \
 	fi
-	@echo "$(GREEN)$(CHECK) Environment file exists: $(ENV_FILE)$(NC)"
-	@if grep -q "^NIFI_PASSWORD=$$" "$(ENV_FILE)" 2>/dev/null; then \
-		echo "$(YELLOW)$(WARNING) NIFI_PASSWORD not set$(NC)"; \
+	@echo "[OK] Environment file exists: $(ENV_FILE)"
+	@if grep -q "^NIFI_PASSWORD=$$" "$(ENV_FILE)" 2>/dev/null || ! grep -q "^NIFI_PASSWORD=" "$(ENV_FILE)" 2>/dev/null; then \
+		echo "[WARNING] NIFI_PASSWORD not set"; \
+		echo "  Run: make setup-password ENV=$(ENV)"; \
 	else \
-		echo "$(GREEN)$(CHECK) NIFI_PASSWORD configured$(NC)"; \
+		echo "[OK] NIFI_PASSWORD configured"; \
 	fi
-	@if grep -q "^NIFI_SENSITIVE_PROPS_KEY=$$" "$(ENV_FILE)" 2>/dev/null; then \
-		echo "$(YELLOW)$(WARNING) NIFI_SENSITIVE_PROPS_KEY not set$(NC)"; \
+	@if grep -q "^NIFI_SENSITIVE_PROPS_KEY=$$" "$(ENV_FILE)" 2>/dev/null || ! grep -q "^NIFI_SENSITIVE_PROPS_KEY=" "$(ENV_FILE)" 2>/dev/null; then \
+		echo "[WARNING] NIFI_SENSITIVE_PROPS_KEY not set"; \
+		echo "  Run: make setup-password ENV=$(ENV)"; \
 	else \
-		echo "$(GREEN)$(CHECK) NIFI_SENSITIVE_PROPS_KEY configured$(NC)"; \
+		echo "[OK] NIFI_SENSITIVE_PROPS_KEY configured"; \
+	fi
+	@if [ ! -f "compose.$(WORKSPACE).yml" ]; then \
+		echo "[WARNING] compose.$(WORKSPACE).yml not found"; \
+		echo ""; \
+		echo "Available compose files:"; \
+		ls -1 compose.*.yml 2>/dev/null | sed 's/^/  - /' || echo "  (none found)"; \
+	else \
+		echo "[OK] Docker Compose file exists: compose.$(WORKSPACE).yml"; \
 	fi
 	@echo ""
 
-# ============================================================================
+# ==================================================
 # SETUP & CONFIGURATION
-# ============================================================================
-setup-password: validate-env
+# ==================================================
+setup-password:
 	@echo ""
-	@echo "$(BLUE)$(KEY) Generating credentials for $(WORKSPACE)...$(NC)"
+	@echo "Generating credentials for $(WORKSPACE)..."
 	@echo ""
+	@if [ ! -f "$(ENV_FILE)" ]; then \
+		echo "[ERROR] $(ENV_FILE) not found"; \
+		echo ""; \
+		echo "Create it first:"; \
+		echo "  cp .env.template $(ENV_FILE)"; \
+		exit 1; \
+	fi
 	@PASS=$$(openssl rand -base64 16 | tr -d '=+/' | cut -c1-20); \
 	KEY=$$(openssl rand -hex 12); \
 	if [ "$$(uname)" = "Darwin" ]; then \
@@ -220,407 +191,404 @@ setup-password: validate-env
 		sed -i "s|^NIFI_PASSWORD=.*|NIFI_PASSWORD=$$PASS|" "$(ENV_FILE)"; \
 		sed -i "s|^NIFI_SENSITIVE_PROPS_KEY=.*|NIFI_SENSITIVE_PROPS_KEY=$$KEY|" "$(ENV_FILE)"; \
 	fi; \
-	echo "$(GREEN)$(CHECK) Password: $$PASS$(NC)"; \
-	echo "$(GREEN)$(CHECK) Sensitive key: $$KEY$(NC)"
+	echo "[OK] Password: $$PASS"; \
+	echo "[OK] Sensitive key: $$KEY"
 	@echo ""
-	@echo "$(CYAN)$(INFO) Credentials saved to $(ENV_FILE)$(NC)"
-	@echo ""
-
-setup-passwords:
-	@for env in local development staging production; do \
-		$(MAKE) setup-password ENV=$$env; \
-	done
-	@echo "$(GREEN)$(BOLD)$(CHECK) All environments configured!$(NC)"
+	@echo "Credentials saved to $(ENV_FILE)"
 	@echo ""
 
 clean-generated-info:
 	@echo ""
-	@echo "$(BLUE)🧹 Cleaning generated info for $(WORKSPACE)...$(NC)"
+	@echo "Cleaning generated info for $(WORKSPACE)..."
 	@echo ""
 	@if [ ! -f "$(ENV_FILE)" ]; then \
-		echo "$(YELLOW)$(WARNING) $(ENV_FILE) not found$(NC)"; \
+		echo "[WARNING] $(ENV_FILE) not found"; \
 		exit 1; \
 	fi
 	@if [ "$$(uname)" = "Darwin" ]; then \
 		sed -i "" "s|^NIFI_PASSWORD=.*|NIFI_PASSWORD=|" "$(ENV_FILE)"; \
 		sed -i "" "s|^NIFI_SENSITIVE_PROPS_KEY=.*|NIFI_SENSITIVE_PROPS_KEY=|" "$(ENV_FILE)"; \
-		if [ "$(WORKSPACE)" != "local" ]; then \
-			sed -i "" "s|^PUBLIC_IP=.*|PUBLIC_IP=|" "$(ENV_FILE)"; \
-			sed -i "" "s|^VM_PUBLIC_IP=.*|VM_PUBLIC_IP=|" "$(ENV_FILE)"; \
-			sed -i "" "s|^NIFI_WEB_PROXY_HOST=.*|NIFI_WEB_PROXY_HOST=|" "$(ENV_FILE)"; \
-		fi; \
+		sed -i "" "s|^PUBLIC_IP=.*|PUBLIC_IP=|" "$(ENV_FILE)"; \
+		sed -i "" "s|^VM_PUBLIC_IP=.*|VM_PUBLIC_IP=|" "$(ENV_FILE)"; \
+		sed -i "" "s|^NIFI_WEB_PROXY_HOST=.*|NIFI_WEB_PROXY_HOST=|" "$(ENV_FILE)"; \
 	else \
 		sed -i "s|^NIFI_PASSWORD=.*|NIFI_PASSWORD=|" "$(ENV_FILE)"; \
 		sed -i "s|^NIFI_SENSITIVE_PROPS_KEY=.*|NIFI_SENSITIVE_PROPS_KEY=|" "$(ENV_FILE)"; \
-		if [ "$(WORKSPACE)" != "local" ]; then \
-			sed -i "s|^PUBLIC_IP=.*|PUBLIC_IP=|" "$(ENV_FILE)"; \
-			sed -i "s|^VM_PUBLIC_IP=.*|VM_PUBLIC_IP=|" "$(ENV_FILE)"; \
-			sed -i "s|^NIFI_WEB_PROXY_HOST=.*|NIFI_WEB_PROXY_HOST=|" "$(ENV_FILE)"; \
-		fi; \
+		sed -i "s|^PUBLIC_IP=.*|PUBLIC_IP=|" "$(ENV_FILE)"; \
+		sed -i "s|^VM_PUBLIC_IP=.*|VM_PUBLIC_IP=|" "$(ENV_FILE)"; \
+		sed -i "s|^NIFI_WEB_PROXY_HOST=.*|NIFI_WEB_PROXY_HOST=|" "$(ENV_FILE)"; \
 	fi
-	@echo "   $(GREEN)$(CHECK) Credentials cleared$(NC)"
-	@if [ "$(WORKSPACE)" != "local" ]; then \
-		echo "   $(GREEN)$(CHECK) IP addresses cleared$(NC)"; \
-	fi
+	@echo "   [OK] Credentials cleared"
+	@echo "   [OK] IP addresses cleared"
 	@echo ""
-	@echo "$(GREEN)$(CHECK) $(WORKSPACE) environment cleaned!$(NC)"
+	@echo "[OK] $(WORKSPACE) environment cleaned!"
 	@echo ""
-	@echo "$(CYAN)💡 To regenerate:$(NC)"
+	@echo "To regenerate:"
 	@echo "   make setup-password ENV=$(ENV)"
 	@echo ""
 
-clean-generated-info-all:
-	@for env in local development staging production; do \
-		$(MAKE) clean-generated-info ENV=$$env; \
-	done
-
 echo-info-access:
 	@echo ""
-	@echo "╔═══════════════════════════════════════════════════════════╗"
-	@echo "║       NiFi CI/CD Environment Access Information           ║"
-	@echo "╚═══════════════════════════════════════════════════════════╝"
+	@echo "========================================================"
+	@echo "       NiFi CI/CD Environment Access Information"
+	@echo "========================================================"
 	@echo ""
-	@if [ "$(WORKSPACE)" = "local" ]; then \
-		echo "┌──────────────────────┐"; \
-		echo "│ 🏠 LOCAL ENVIRONMENT │"; \
-		echo "└──────────────────────┘"; \
-		if command -v docker >/dev/null 2>&1 && docker ps >/dev/null 2>&1; then \
-			NIFI_CONTAINER=$$(docker ps --filter "name=nifi" --filter "status=running" --format "{{.Names}}" 2>/dev/null | grep -v registry | head -n1); \
-			REGISTRY_CONTAINER=$$(docker ps --filter "name=registry" --filter "status=running" --format "{{.Names}}" 2>/dev/null | head -n1); \
-			if [ -n "$$NIFI_CONTAINER" ]; then \
-				NIFI_USER=$$(docker exec $$NIFI_CONTAINER env 2>/dev/null | grep "^SINGLE_USER_CREDENTIALS_USERNAME=" | cut -d'=' -f2); \
-				NIFI_PASS=$$(docker exec $$NIFI_CONTAINER env 2>/dev/null | grep "^SINGLE_USER_CREDENTIALS_PASSWORD=" | cut -d'=' -f2); \
-				ENV_PASS=$$(grep "^NIFI_PASSWORD=" .env 2>/dev/null | cut -d'=' -f2); \
-				echo "  $(BLUE)👤 Username:        $(CYAN)$$NIFI_USER$(NC)"; \
-				echo "  $(BLUE)🔑 Password:        $(CYAN)$$NIFI_PASS$(NC)"; \
-				echo "  $(BLUE)📊 NiFi UI:         $(GREEN)https://localhost:8443/nifi$(NC)"; \
-				echo "  $(BLUE)📦 NiFi Registry:   $(GREEN)http://localhost:18080/nifi-registry$(NC)"; \
-				if [ -n "$$ENV_PASS" ] && [ "$$NIFI_PASS" != "$$ENV_PASS" ]; then \
-					echo ""; \
-					echo "  $(YELLOW)⚠️  WARNING: .env password differs from running container$(NC)"; \
-					echo "  $(CYAN)💡 Run 'make restart' to apply new password$(NC)"; \
-				fi; \
-			else \
-				echo "  $(YELLOW)⚠️ No running containers found$(NC)"; \
-				echo ""; \
-				echo "  Run: make up"; \
-			fi; \
-		else \
-			echo "  $(YELLOW)⚠️ Docker not running$(NC)"; \
-			echo ""; \
-			echo "  Run: make up"; \
-		fi; \
-	else \
-		if [ "$(WORKSPACE)" = "development" ]; then \
-			echo "┌─────────────────────────────┐"; \
-			echo "│ 🔧 DEVELOPMENT ENVIRONMENT  │"; \
-			echo "└─────────────────────────────┘"; \
-		elif [ "$(WORKSPACE)" = "staging" ]; then \
-			echo "┌────────────────────────┐"; \
-			echo "│ 🎭 STAGING ENVIRONMENT │"; \
-			echo "└────────────────────────┘"; \
-		elif [ "$(WORKSPACE)" = "production" ]; then \
-			echo "┌───────────────────────────┐"; \
-			echo "│ 🚀 PRODUCTION ENVIRONMENT │"; \
-			echo "└───────────────────────────┘"; \
-		fi; \
-		\
-		if command -v docker >/dev/null 2>&1 && sudo docker ps >/dev/null 2>&1; then \
-			echo "  $(BLUE)🔍 Extracting info from running containers...$(NC)"; \
-			echo ""; \
-			NIFI_CONTAINER=$$(sudo docker ps --filter "name=nifi" --filter "status=running" --format "{{.Names}}" 2>/dev/null | grep -v registry | head -n1); \
-			REGISTRY_CONTAINER=$$(sudo docker ps --filter "name=registry" --filter "status=running" --format "{{.Names}}" 2>/dev/null | head -n1); \
-			if [ -n "$$NIFI_CONTAINER" ]; then \
-				VM_IP=$$(curl -s ifconfig.me 2>/dev/null || curl -s icanhazip.com 2>/dev/null || hostname -I | awk '{print $$1}'); \
-				NIFI_USER=$$(sudo docker exec $$NIFI_CONTAINER env 2>/dev/null | grep "^SINGLE_USER_CREDENTIALS_USERNAME=" | cut -d'=' -f2); \
-				NIFI_PASS=$$(sudo docker exec $$NIFI_CONTAINER env 2>/dev/null | grep "^SINGLE_USER_CREDENTIALS_PASSWORD=" | cut -d'=' -f2); \
-				echo "  $(BLUE)📊 NiFi UI:         $(GREEN)https://$$VM_IP:8443/nifi$(NC)"; \
-				if [ -n "$$REGISTRY_CONTAINER" ]; then \
-					echo "  $(BLUE)📦 NiFi Registry:   $(GREEN)http://$$VM_IP:18080/nifi-registry$(NC)"; \
-				fi; \
-				echo "  $(BLUE)👤 NiFi Username:   $(CYAN)$$NIFI_USER$(NC)"; \
-				echo "  $(BLUE)🔑 NiFi Password:   $(CYAN)$$NIFI_PASS$(NC)"; \
-				echo "  $(BLUE)🌐 VM IP:           $(CYAN)$$VM_IP$(NC)"; \
-				echo ""; \
-				echo "  $(CYAN)💡 Container: $$NIFI_CONTAINER$(NC)"; \
-			else \
-				echo "  $(RED)❌ No running NiFi containers found$(NC)"; \
-				echo ""; \
-				echo "  $(CYAN)Check deployment status:$(NC)"; \
-				echo "    sudo docker ps -a"; \
-				echo "    sudo docker logs <container-name>"; \
-			fi; \
-		elif command -v gh >/dev/null 2>&1; then \
-			echo "  $(BLUE)🔍 Fetching info from GitHub Actions...$(NC)"; \
-			echo ""; \
-			REPO=$$(git config --get remote.origin.url | sed 's/.*github.com[:/]\(.*\)\.git/\1/' 2>/dev/null); \
-			if [ -z "$$REPO" ]; then \
-				echo "  $(RED)❌ Cannot determine GitHub repository$(NC)"; \
-			else \
-				WORKFLOW_RUN=$$(gh run list --workflow=deploy-$(WORKSPACE).yml --limit 1 --json conclusion,databaseId,status,displayTitle 2>/dev/null | jq -r '.[0] // empty'); \
-				if [ -n "$$WORKFLOW_RUN" ]; then \
-					RUN_ID=$$(echo "$$WORKFLOW_RUN" | jq -r '.databaseId'); \
-					STATUS=$$(echo "$$WORKFLOW_RUN" | jq -r '.status'); \
-					CONCLUSION=$$(echo "$$WORKFLOW_RUN" | jq -r '.conclusion // "in_progress"'); \
-					if [ "$$CONCLUSION" = "success" ]; then \
-						echo "  $(GREEN)✅ Last deployment: successful$(NC)"; \
-						echo ""; \
-						LOGS=$$(gh run view $$RUN_ID --log 2>/dev/null | grep -A 5 "DEPLOYMENT SUCCESSFUL" | tail -5); \
-						if [ -n "$$LOGS" ]; then \
-							VM_IP=$$(echo "$$LOGS" | grep "NiFi UI:" | sed 's/.*https:\/\/\([^:]*\):.*/\1/' | head -n1); \
-							if [ -n "$$VM_IP" ]; then \
-								echo "  $(BLUE)📊 NiFi UI:         $(GREEN)https://$$VM_IP:8443/nifi$(NC)"; \
-								echo "  $(BLUE)📦 NiFi Registry:   $(GREEN)http://$$VM_IP:18080/nifi-registry$(NC)"; \
-								echo "  $(BLUE)🌐 VM IP:           $(CYAN)$$VM_IP$(NC)"; \
-								echo ""; \
-								echo "  $(YELLOW)⚠️  Credentials are stored in GitHub Secrets$(NC)"; \
-								echo "  $(CYAN)💡 View deployment logs: gh run view $$RUN_ID$(NC)"; \
-							else \
-								echo "  $(YELLOW)⚠️  Could not extract VM IP from logs$(NC)"; \
-								echo "  $(CYAN)💡 View full logs: gh run view $$RUN_ID$(NC)"; \
-							fi; \
-						else \
-							echo "  $(YELLOW)⚠️  Could not fetch deployment logs$(NC)"; \
-							echo "  $(CYAN)💡 View logs: gh run view $$RUN_ID$(NC)"; \
-						fi; \
-					else \
-						echo "  $(YELLOW)⚠️  Last deployment status: $$CONCLUSION$(NC)"; \
-						echo "  $(CYAN)💡 View logs: gh run view $$RUN_ID$(NC)"; \
-					fi; \
-				else \
-					echo "  $(YELLOW)⚠️  No deployment runs found for $(WORKSPACE)$(NC)"; \
-					echo ""; \
-					echo "  $(CYAN)Deploy with: git push origin develop$(NC)"; \
-				fi; \
-			fi; \
-		else \
-			echo "  $(RED)❌ Cannot retrieve information$(NC)"; \
-			echo ""; \
-			echo "  $(CYAN)Install GitHub CLI to view deployment info:$(NC)"; \
-			echo "    brew install gh  # macOS"; \
-			echo "    sudo apt install gh  # Ubuntu/Debian"; \
-			echo ""; \
-			echo "  $(CYAN)Or SSH to VM and run:$(NC)"; \
-			echo "    make echo-info-access ENV=$(ENV)"; \
-		fi; \
+	@if [ "$(WORKSPACE)" = "development" ]; then \
+		echo "DEVELOPMENT ENVIRONMENT"; \
+		echo "----------------------"; \
+	elif [ "$(WORKSPACE)" = "staging" ]; then \
+		echo "STAGING ENVIRONMENT"; \
+		echo "------------------"; \
+	elif [ "$(WORKSPACE)" = "production" ]; then \
+		echo "PRODUCTION ENVIRONMENT"; \
+		echo "---------------------"; \
 	fi
 	@echo ""
-
-echo-info-access-all:
-	@$(MAKE) echo-info-access WORKSPACE=development ENV=development
-	@$(MAKE) echo-info-access WORKSPACE=staging ENV=staging
-	@$(MAKE) echo-info-access WORKSPACE=production ENV=production
-
-# ============================================================================
-# LOCAL DOCKER ENVIRONMENT
-# ============================================================================
-up:
-	@echo "$(BLUE)$(ROCKET) Starting local NiFi environment...$(NC)"
-	@$(DOCKER) -f compose.local.yml up -d
-	@echo "$(GREEN)$(CHECK) Containers started$(NC)"
+	@if command -v docker >/dev/null 2>&1 && sudo docker ps >/dev/null 2>&1; then \
+		echo "  Extracting info from running containers..."; \
+		echo ""; \
+		NIFI_CONTAINER=$$(sudo docker ps --filter "name=nifi" --filter "status=running" --format "{{.Names}}" 2>/dev/null | grep -v registry | head -n1); \
+		if [ -n "$$NIFI_CONTAINER" ]; then \
+			VM_IP=$$(curl -s ifconfig.me 2>/dev/null || curl -s icanhazip.com 2>/dev/null || hostname -I | awk '{print $$1}'); \
+			NIFI_USER=$$(sudo docker exec $$NIFI_CONTAINER env 2>/dev/null | grep "^SINGLE_USER_CREDENTIALS_USERNAME=" | cut -d'=' -f2); \
+			NIFI_PASS=$$(sudo docker exec $$NIFI_CONTAINER env 2>/dev/null | grep "^SINGLE_USER_CREDENTIALS_PASSWORD=" | cut -d'=' -f2); \
+			echo "  NiFi UI:         https://$$VM_IP:8443/nifi"; \
+			echo "  NiFi Registry:   http://$$VM_IP:18080/nifi-registry"; \
+			echo "  NiFi Username:   $$NIFI_USER"; \
+			echo "  NiFi Password:   $$NIFI_PASS"; \
+			echo "  VM IP:           $$VM_IP"; \
+			echo ""; \
+			echo "  Container: $$NIFI_CONTAINER"; \
+		else \
+			echo "  [ERROR] No running NiFi containers found"; \
+			echo ""; \
+			echo "  Please start the NiFi services on this VM"; \
+		fi; \
+	else \
+		echo "  [ERROR] Cannot retrieve information"; \
+		echo "  Docker may not be running or requires sudo access"; \
+		echo ""; \
+		echo "  SSH to VM and run: make echo-info-access ENV=$(ENV)"; \
+	fi
 	@echo ""
-	@echo "$(CYAN)Waiting for services to be ready...$(NC)"
-	@sleep 30
-	@$(MAKE) health-check
-
-down:
-	@echo "$(BLUE)🛑 Stopping local NiFi environment...$(NC)"
-	@$(DOCKER) -f compose.local.yml down
-	@echo "$(GREEN)$(CHECK) Containers stopped$(NC)"
-
-restart: down
-	@sleep 2
-	@$(MAKE) up
-
-status:
-	@echo ""
-	@echo "$(BLUE)$(CHART) Container Status:$(NC)"
-	@echo ""
-	@$(DOCKER) -f compose.local.yml ps
-	@echo ""
-
-logs:
-	@echo "$(CYAN)$(INFO) Tailing all container logs (Ctrl+C to exit)...$(NC)"
-	@$(DOCKER) -f compose.local.yml logs -f --tail=100
-
-logs-nifi:
-	@echo "$(CYAN)$(INFO) Tailing NiFi logs (Ctrl+C to exit)...$(NC)"
-	@$(DOCKER) -f compose.local.yml logs -f --tail=100 nifi
-
-logs-registry:
-	@echo "$(CYAN)$(INFO) Tailing Registry logs (Ctrl+C to exit)...$(NC)"
-	@$(DOCKER) -f compose.local.yml logs -f --tail=100 nifi-registry
-
-clean-volumes:
-	@echo "$(YELLOW)🧹 Cleaning Docker volumes...$(NC)"
-	@docker volume rm $(PROJECT_NAME)_nifi_conf 2>/dev/null || true
-	@docker volume rm $(PROJECT_NAME)_nifi_registry_git 2>/dev/null || true
-	@echo "$(GREEN)$(CHECK) Volumes removed$(NC)"
-
-prune:
-	@echo "$(YELLOW)$(WARNING) This will remove all stopped containers, unused networks, and dangling images$(NC)"
-	@echo -n "Continue? [y/N] " && read ans && [ $${ans:-N} = y ]
-	@docker system prune -f
-	@echo "$(GREEN)$(CHECK) Docker system pruned$(NC)"
 
 health-check:
 	@echo ""
-	@echo "$(BLUE)🏥 Health Check - Local Environment$(NC)"
+	@echo "Health Check - $(WORKSPACE) Environment"
 	@echo ""
-	@NIFI_RUNNING=$$(docker ps --filter "name=nifi" --filter "status=running" --format "{{.Names}}" 2>/dev/null | grep -v registry | head -n1); \
-	REGISTRY_RUNNING=$$(docker ps --filter "name=registry" --filter "status=running" --format "{{.Names}}" 2>/dev/null | head -n1); \
-	if [ -n "$$NIFI_RUNNING" ]; then \
-		echo "$(GREEN)$(CHECK) NiFi container running: $$NIFI_RUNNING$(NC)"; \
-		if curl -sf -k https://localhost:8443/nifi > /dev/null 2>&1; then \
-			echo "$(GREEN)$(CHECK) NiFi web UI responding$(NC)"; \
+	@if command -v docker >/dev/null 2>&1 && sudo docker ps >/dev/null 2>&1; then \
+		NIFI_RUNNING=$$(sudo docker ps --filter "name=nifi" --filter "status=running" --format "{{.Names}}" 2>/dev/null | grep -v registry | head -n1); \
+		REGISTRY_RUNNING=$$(sudo docker ps --filter "name=registry" --filter "status=running" --format "{{.Names}}" 2>/dev/null | head -n1); \
+		VM_IP=$$(curl -s ifconfig.me 2>/dev/null || curl -s icanhazip.com 2>/dev/null || hostname -I | awk '{print $$1}'); \
+		if [ -n "$$NIFI_RUNNING" ]; then \
+			echo "[OK] NiFi container running: $$NIFI_RUNNING"; \
+			if curl -sf -k https://$$VM_IP:8443/nifi > /dev/null 2>&1; then \
+				echo "[OK] NiFi web UI responding"; \
+			else \
+				echo "[WARNING] NiFi web UI not responding yet"; \
+			fi; \
 		else \
-			echo "$(YELLOW)$(WARNING) NiFi web UI not responding yet$(NC)"; \
+			echo "[ERROR] NiFi container not running"; \
+		fi; \
+		if [ -n "$$REGISTRY_RUNNING" ]; then \
+			echo "[OK] Registry container running: $$REGISTRY_RUNNING"; \
+			if curl -sf http://$$VM_IP:18080/nifi-registry > /dev/null 2>&1; then \
+				echo "[OK] Registry API responding"; \
+			else \
+				echo "[WARNING] Registry API not responding yet"; \
+			fi; \
+		else \
+			echo "[ERROR] Registry container not running"; \
 		fi; \
 	else \
-		echo "$(RED)$(CROSS) NiFi container not running$(NC)"; \
-	fi; \
-	if [ -n "$$REGISTRY_RUNNING" ]; then \
-		echo "$(GREEN)$(CHECK) Registry container running: $$REGISTRY_RUNNING$(NC)"; \
-		if curl -sf http://localhost:18080/nifi-registry > /dev/null 2>&1; then \
-			echo "$(GREEN)$(CHECK) Registry API responding$(NC)"; \
-		else \
-			echo "$(YELLOW)$(WARNING) Registry API not responding yet$(NC)"; \
-		fi; \
-	else \
-		echo "$(RED)$(CROSS) Registry container not running$(NC)"; \
+		echo "[ERROR] Docker not accessible"; \
+		echo "SSH to VM and run: make health-check ENV=$(ENV)"; \
 	fi
 	@echo ""
 
-# ============================================================================
+# ==================================================
+# VM DOCKER MANAGEMENT
+# ==================================================
+up: validate-env
+	@echo ""
+	@echo "Starting NiFi services on $(WORKSPACE) VM..."
+	@echo ""
+	@if [ ! -f "compose.$(WORKSPACE).yml" ]; then \
+		echo "[ERROR] compose.$(WORKSPACE).yml not found"; \
+		echo ""; \
+		echo "Available compose files:"; \
+		ls -1 compose.*.yml 2>/dev/null | sed 's/^/  - /' || echo "  (none found)"; \
+		exit 1; \
+	fi
+	@if command -v docker >/dev/null 2>&1 && sudo docker ps >/dev/null 2>&1; then \
+		echo "  Running on VM - executing docker compose up..."; \
+		sudo docker compose -f compose.$(WORKSPACE).yml --env-file $(ENV_FILE) up -d; \
+		echo "  [OK] Containers started"; \
+		echo ""; \
+		echo "  Waiting for services to be ready..."; \
+		sleep 45; \
+		$(MAKE) health-check ENV=$(ENV); \
+	else \
+		echo "  [ERROR] Not on VM or Docker not accessible"; \
+		echo ""; \
+		echo "  To start services:"; \
+		echo "    1. SSH to VM: make ssh-$(ENV)"; \
+		echo "    2. Run: cd ~/nificicd-g1p2 && make up ENV=$(ENV)"; \
+	fi
+	@echo ""
+
+down: validate-env
+	@echo ""
+	@echo "Stopping NiFi services on $(WORKSPACE) VM..."
+	@echo ""
+	@if [ ! -f "compose.$(WORKSPACE).yml" ]; then \
+		echo "[ERROR] compose.$(WORKSPACE).yml not found"; \
+		exit 1; \
+	fi
+	@if command -v docker >/dev/null 2>&1 && sudo docker ps >/dev/null 2>&1; then \
+		echo "  Running on VM - executing docker compose down..."; \
+		sudo docker compose -f compose.$(WORKSPACE).yml --env-file $(ENV_FILE) down; \
+		echo "  [OK] Containers stopped"; \
+	else \
+		echo "  [ERROR] Not on VM or Docker not accessible"; \
+		echo ""; \
+		echo "  To stop services:"; \
+		echo "    1. SSH to VM: make ssh-$(ENV)"; \
+		echo "    2. Run: cd ~/nificicd-g1p2 && make down ENV=$(ENV)"; \
+	fi
+	@echo ""
+
+restart: down
+	@sleep 2
+	@$(MAKE) up ENV=$(ENV)
+
+status: validate-env
+	@echo ""
+	@echo "Container Status - $(WORKSPACE)"
+	@echo ""
+	@if command -v docker >/dev/null 2>&1 && sudo docker ps >/dev/null 2>&1; then \
+		sudo docker compose -f compose.$(WORKSPACE).yml --env-file $(ENV_FILE) ps; \
+	else \
+		echo "  [ERROR] Not on VM or Docker not accessible"; \
+		echo ""; \
+		echo "  SSH to VM and run: make status ENV=$(ENV)"; \
+	fi
+	@echo ""
+
+logs: validate-env
+	@echo ""
+	@echo "Tailing all container logs - $(WORKSPACE) (Ctrl+C to exit)..."
+	@echo ""
+	@if command -v docker >/dev/null 2>&1 && sudo docker ps >/dev/null 2>&1; then \
+		sudo docker compose -f compose.$(WORKSPACE).yml --env-file $(ENV_FILE) logs -f --tail=100; \
+	else \
+		echo "  [ERROR] Not on VM or Docker not accessible"; \
+		echo ""; \
+		echo "  SSH to VM and run: make logs ENV=$(ENV)"; \
+	fi
+
+logs-nifi: validate-env
+	@echo ""
+	@echo "Tailing NiFi logs - $(WORKSPACE) (Ctrl+C to exit)..."
+	@echo ""
+	@if command -v docker >/dev/null 2>&1 && sudo docker ps >/dev/null 2>&1; then \
+		sudo docker compose -f compose.$(WORKSPACE).yml --env-file $(ENV_FILE) logs -f --tail=100 nifi; \
+	else \
+		echo "  [ERROR] Not on VM or Docker not accessible"; \
+		echo ""; \
+		echo "  SSH to VM and run: make logs-nifi ENV=$(ENV)"; \
+	fi
+
+logs-registry: validate-env
+	@echo ""
+	@echo "Tailing Registry logs - $(WORKSPACE) (Ctrl+C to exit)..."
+	@echo ""
+	@if command -v docker >/dev/null 2>&1 && sudo docker ps >/dev/null 2>&1; then \
+		sudo docker compose -f compose.$(WORKSPACE).yml --env-file $(ENV_FILE) logs -f --tail=100 nifi-registry; \
+	else \
+		echo "  [ERROR] Not on VM or Docker not accessible"; \
+		echo ""; \
+		echo "  SSH to VM and run: make logs-registry ENV=$(ENV)"; \
+	fi
+
+clean-volumes:
+	@echo ""
+	@echo "Cleaning up NiFi Docker volumes on $(WORKSPACE) VM..."
+	@echo ""
+	@if command -v docker >/dev/null 2>&1 && sudo docker ps >/dev/null 2>&1; then \
+		echo "  [WARNING] This will remove all NiFi data volumes"; \
+		echo ""; \
+		printf "  Continue? [y/N]: "; \
+		read confirm; \
+		if [ "$${confirm}" = "y" ] || [ "$${confirm}" = "Y" ]; then \
+			sudo docker volume rm nifi_conf_$(WORKSPACE) 2>/dev/null || true; \
+			sudo docker volume rm nifi_database_repository_$(WORKSPACE) 2>/dev/null || true; \
+			sudo docker volume rm nifi_flowfile_repository_$(WORKSPACE) 2>/dev/null || true; \
+			sudo docker volume rm nifi_content_repository_$(WORKSPACE) 2>/dev/null || true; \
+			sudo docker volume rm nifi_provenance_repository_$(WORKSPACE) 2>/dev/null || true; \
+			sudo docker volume rm nifi_nar_extensions_$(WORKSPACE) 2>/dev/null || true; \
+			sudo docker volume rm nifi_python_extensions_$(WORKSPACE) 2>/dev/null || true; \
+			sudo docker volume rm nifi_state_$(WORKSPACE) 2>/dev/null || true; \
+			sudo docker volume rm nifi_logs_$(WORKSPACE) 2>/dev/null || true; \
+			echo "  [OK] Cleanup complete"; \
+		else \
+			echo "  Cleanup cancelled"; \
+		fi; \
+	else \
+		echo "  [ERROR] Not on VM or Docker not accessible"; \
+		echo ""; \
+		echo "  SSH to VM and run: make clean-volumes ENV=$(ENV)"; \
+	fi
+	@echo ""
+
+prune:
+	@echo ""
+	@echo "Deep cleaning Docker resources on $(WORKSPACE) VM..."
+	@echo ""
+	@if command -v docker >/dev/null 2>&1 && sudo docker ps >/dev/null 2>&1; then \
+		echo "  [WARNING] This will remove:"; \
+		echo "    - All stopped containers"; \
+		echo "    - All unused networks"; \
+		echo "    - All dangling images"; \
+		echo ""; \
+		printf "  Continue? [y/N]: "; \
+		read confirm; \
+		if [ "$${confirm}" = "y" ] || [ "$${confirm}" = "Y" ]; then \
+			sudo docker system prune -f; \
+			echo "  [OK] Docker system pruned"; \
+		else \
+			echo "  Prune cancelled"; \
+		fi; \
+	else \
+		echo "  [ERROR] Not on VM or Docker not accessible"; \
+		echo ""; \
+		echo "  SSH to VM and run: make prune ENV=$(ENV)"; \
+	fi
+	@echo ""
+
+# ==================================================
 # REGISTRY SETUP
-# ============================================================================
+# ==================================================
 setup-registry-default:
-	@echo "$(BLUE)$(PACKAGE) Setting up NiFi Registry (default)...$(NC)"
-	@bash scripts/setup_nifi_registry.sh
+	@echo "Setting up NiFi Registry (default) for $(WORKSPACE)..."
+	@export $$(cat $(ENV_FILE) | grep -v '^#' | xargs) && bash scripts/setup_nifi_registry.sh
 
 setup-registry-buckets:
 	@echo ""
-	@$(call print_section,"Creating Flow-Specific Buckets")
+	@$(call print_section,"Creating Flow-Specific Buckets - $(WORKSPACE)")
 	@echo ""
 	@if [ ! -f scripts/setup_nifi_registry.sh ]; then \
-		echo "$(RED)$(CROSS) scripts/setup_nifi_registry.sh not found$(NC)"; \
+		echo "[ERROR] scripts/setup_nifi_registry.sh not found"; \
 		exit 1; \
 	fi
-	@echo "$(CYAN)$(INFO) Configuration:$(NC)"
-	@echo "  $(BULLET) Registry URL: http://localhost:18080"
-	@echo "  $(BULLET) Flows Directory: ./flows"
+	@VM_IP=$$(grep '^VM_PUBLIC_IP=' $(ENV_FILE) | cut -d'=' -f2); \
+	if [ -z "$$VM_IP" ]; then \
+		VM_IP=$$(grep '^PUBLIC_IP=' $(ENV_FILE) | cut -d'=' -f2); \
+	fi; \
+	echo "Configuration:"; \
+	echo "  - Environment: $(WORKSPACE)"; \
+	echo "  - Registry URL: http://$$VM_IP:18080"; \
+	echo "  - Flows Directory: ./flows"
 	@if [ -n "$(FLOW)" ]; then \
-		echo "  $(BULLET) Creating bucket for flow: $(FLOW)"; \
+		echo "  - Creating bucket for flow: $(FLOW)"; \
 		if [ ! -f "./flows/$(FLOW).json" ]; then \
-			echo "$(RED)$(CROSS) Flow file not found: ./flows/$(FLOW).json$(NC)"; \
+			echo "[ERROR] Flow file not found: ./flows/$(FLOW).json"; \
 			exit 1; \
 		fi; \
 		bucket_name=$$(echo "$(FLOW)" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]/-/g' | sed 's/--*/-/g' | sed 's/^-//;s/-$$//'); \
-		echo "  $(BULLET) Bucket name: $$bucket_name"; \
+		echo "  - Bucket name: $$bucket_name"; \
 		echo ""; \
+		export $$(cat $(ENV_FILE) | grep -v '^#' | xargs) && \
 		SKIP_DEFAULT_BUCKET=true SPECIFIC_FLOW="$(FLOW)" CREATE_PER_FLOW_BUCKETS=true bash scripts/setup_nifi_registry.sh; \
 	elif [ -n "$(FLOWS)" ]; then \
-		echo "  $(BULLET) Creating buckets for flows: $(FLOWS)"; \
-		for flow in $$(echo "$(FLOWS)" | tr ',' ' '); do \
-			if [ ! -f "./flows/$$flow.json" ]; then \
-				echo "$(YELLOW)$(WARN) Flow file not found: ./flows/$$flow.json (will skip)$(NC)"; \
-			fi; \
-		done; \
+		echo "  - Creating buckets for flows: $(FLOWS)"; \
 		echo ""; \
+		export $$(cat $(ENV_FILE) | grep -v '^#' | xargs) && \
 		SKIP_DEFAULT_BUCKET=true SPECIFIC_FLOWS="$(FLOWS)" CREATE_PER_FLOW_BUCKETS=true bash scripts/setup_nifi_registry.sh; \
 	else \
-		echo "  $(BULLET) Creating buckets for all flows"; \
+		echo "  - Creating buckets for all flows"; \
 		echo ""; \
+		export $$(cat $(ENV_FILE) | grep -v '^#' | xargs) && \
 		SKIP_DEFAULT_BUCKET=true CREATE_PER_FLOW_BUCKETS=true bash scripts/setup_nifi_registry.sh; \
 	fi
 	@echo ""
-	@echo "$(GREEN)$(CHECK) Flow buckets setup complete!$(NC)"
-	@echo ""
-
-setup-registry-buckets-help:
-	@echo ""
-	@echo "$(CYAN)NiFi Registry Bucket Setup - Usage$(NC)"
-	@echo ""
-	@echo "$(YELLOW)Note: Run 'make setup-registry-default' first to create the default bucket$(NC)"
-	@echo ""
-	@echo "Create buckets for all flows:"
-	@echo "  $(GREEN)make setup-registry-buckets$(NC)"
-	@echo ""
-	@echo "Create bucket for a specific flow:"
-	@echo "  $(GREEN)make setup-registry-buckets FLOW=MyFlow$(NC)"
-	@echo ""
-	@echo "Create buckets for multiple flows (comma-separated):"
-	@echo "  $(GREEN)make setup-registry-buckets FLOWS=Flow1,Flow2,Flow3$(NC)"
-	@echo ""
-	@echo "Complete setup workflow:"
-	@echo "  $(GREEN)make setup-registry-default$(NC)         # Create default bucket"
-	@echo "  $(GREEN)make setup-registry-buckets$(NC)         # Create flow-specific buckets"
+	@echo "[OK] Flow buckets setup complete for $(WORKSPACE)!"
 	@echo ""
 
 registry-info:
 	@echo ""
-	@$(call print_section,"NiFi Registry Information")
+	@$(call print_section,"NiFi Registry Information - $(WORKSPACE)")
 	@echo ""
-	@echo "$(CYAN)$(CHART) Registry Status:$(NC)"
-	@if curl -sf "http://localhost:18080/nifi-registry" > /dev/null 2>&1; then \
-		echo "  $(GREEN)$(CHECK) Registry is running$(NC)"; \
-		echo "  $(BLUE)🔗 URL: http://localhost:18080/nifi-registry$(NC)"; \
+	@VM_IP=$$(grep '^VM_PUBLIC_IP=' $(ENV_FILE) | cut -d'=' -f2); \
+	if [ -z "$$VM_IP" ]; then \
+		VM_IP=$$(grep '^PUBLIC_IP=' $(ENV_FILE) | cut -d'=' -f2); \
+	fi; \
+	REGISTRY_URL="http://$$VM_IP:18080"; \
+	echo "Registry Status:"; \
+	if curl -sf "$$REGISTRY_URL/nifi-registry" > /dev/null 2>&1; then \
+		echo "  [OK] Registry is running"; \
+		echo "  URL: $$REGISTRY_URL/nifi-registry"; \
 	else \
-		echo "  $(RED)$(CROSS) Registry is not running$(NC)"; \
-		echo "  $(YELLOW)💡 Start with: make up$(NC)"; \
+		echo "  [ERROR] Registry is not accessible"; \
+		echo "  URL: $$REGISTRY_URL/nifi-registry"; \
+		echo "  Check if services are running or firewall rules"; \
 	fi
 	@echo ""
-	@echo "$(CYAN)$(PACKAGE) Registry Buckets:$(NC)"
-	@curl -s "http://localhost:18080/nifi-registry-api/buckets" 2>/dev/null | \
-		jq -r '.[] | "  $(BULLET) \(.name) (ID: \(.identifier))"' 2>/dev/null || \
-		echo "  $(YELLOW)$(WARNING) Could not fetch buckets$(NC)"
+	@echo "Registry Buckets:"
+	@VM_IP=$$(grep '^VM_PUBLIC_IP=' $(ENV_FILE) | cut -d'=' -f2); \
+	if [ -z "$$VM_IP" ]; then \
+		VM_IP=$$(grep '^PUBLIC_IP=' $(ENV_FILE) | cut -d'=' -f2); \
+	fi; \
+	curl -s "http://$$VM_IP:18080/nifi-registry-api/buckets" 2>/dev/null | \
+		jq -r '.[] | "  - \(.name) (ID: \(.identifier))"' 2>/dev/null || \
+		echo "  [WARNING] Could not fetch buckets"
 	@echo ""
-	@echo "$(CYAN)📂 Available Flows:$(NC)"
+	@echo "Available Flows:"
 	@if [ -d "flows" ] && [ -n "$$(ls -A flows/*.json 2>/dev/null)" ]; then \
 		ls -1 flows/*.json 2>/dev/null | while read file; do \
 			name=$$(basename "$$file" .json); \
-			echo "  $(GREEN)$(BULLET)$(NC) $$name"; \
+			echo "  - $$name"; \
 		done; \
 		total=$$(ls -1 flows/*.json 2>/dev/null | wc -l | tr -d ' '); \
 		echo ""; \
-		echo "  $(BLUE)Total: $$total flow(s)$(NC)"; \
+		echo "  Total: $$total flow(s)"; \
 	else \
-		echo "  $(YELLOW)$(WARNING) No flows found in flows/ directory$(NC)"; \
+		echo "  [WARNING] No flows found in flows/ directory"; \
 	fi
 	@echo ""
 
-# ============================================================================
+# ==================================================
 # FLOW IMPORT
-# ============================================================================
+# ==================================================
 import-flows-auto:
-	@echo "$(BLUE)$(PACKAGE) Auto-importing flows...$(NC)"
+	@echo "Auto-importing flows to $(WORKSPACE)..."
 	@export $$(cat $(ENV_FILE) | grep -v '^#' | xargs) && bash scripts/auto_import_flows.sh
 
 import-flow:
 	@if [ -z "$(FLOW)" ]; then \
-		echo "$(RED)$(CROSS) FLOW parameter required$(NC)"; \
+		echo "[ERROR] FLOW parameter required"; \
 		echo ""; \
-		echo "Usage: make import-flow FLOW=<flow-name>"; \
+		echo "Usage: make import-flow FLOW=<flow-name> ENV=<env>"; \
 		echo ""; \
 		echo "Available flows:"; \
-		ls -1 flows/*.json 2>/dev/null | xargs -n1 basename | sed 's/\.json$$//' | sed 's/^/  $(BULLET) /' || echo "  (none)"; \
+		ls -1 flows/*.json 2>/dev/null | xargs -n1 basename | sed 's/\.json$//' | sed 's/^/  - /' || echo "  (none)"; \
 		exit 1; \
 	fi
 	@echo ""
-	@echo "$(BLUE)$(PACKAGE) Importing flow: $(FLOW)$(NC)"
-	@export $$(cat $(ENV_FILE) | grep -v '^#' | xargs) && \
+	@echo "Importing flow: $(FLOW) to $(WORKSPACE)"
+	@export $(cat $(ENV_FILE) | grep -v '^#' | xargs) && \
 	export FLOW_NAME="$(FLOW)" && \
 	bash scripts/auto_import_flows.sh
 
 import-flows-pattern:
 	@if [ -z "$(PATTERN)" ]; then \
-		echo "$(RED)$(CROSS) PATTERN parameter required$(NC)"; \
+		echo "[ERROR] PATTERN parameter required"; \
 		echo ""; \
-		echo "Usage: make import-flows-pattern PATTERN=<pattern>"; \
+		echo "Usage: make import-flows-pattern PATTERN=<pattern> ENV=<env>"; \
 		exit 1; \
 	fi
-	@echo "$(BLUE)$(PACKAGE) Importing flows matching: $(PATTERN)$(NC)"
-	@export $$(cat $(ENV_FILE) | grep -v '^#' | xargs) && \
+	@echo "Importing flows matching: $(PATTERN) to $(WORKSPACE)"
+	@export $(cat $(ENV_FILE) | grep -v '^#' | xargs) && \
 	export FLOW_PATTERN="$(PATTERN)" && \
 	bash scripts/auto_import_flows.sh
 
@@ -629,158 +597,155 @@ list-flows:
 	@$(call print_section,"Available NiFi Flows")
 	@echo ""
 	@if [ -d "flows" ] && [ -n "$$(ls -A flows/*.json 2>/dev/null)" ]; then \
-		echo "$(CYAN)📂 Flows directory:$(NC)"; \
+		echo "Flows directory:"; \
 		ls -1 flows/*.json 2>/dev/null | while read file; do \
 			name=$$(basename "$$file" .json); \
 			size=$$(du -h "$$file" | cut -f1); \
-			echo "  $(GREEN)$(BULLET)$(NC) $$name $(YELLOW)($$size)$(NC)"; \
+			echo "  - $$name ($$size)"; \
 		done; \
 		echo ""; \
 		total=$$(ls -1 flows/*.json 2>/dev/null | wc -l | tr -d ' '); \
-		echo "$(BLUE)Total: $$total flow(s)$(NC)"; \
+		echo "Total: $$total flow(s)"; \
 	else \
-		echo "$(YELLOW)$(WARNING) No flows found in flows/ directory$(NC)"; \
+		echo "[WARNING] No flows found in flows/ directory"; \
 	fi
 	@echo ""
 
-# ============================================================================
+# ==================================================
 # FLOW EXPORT
-# ============================================================================
+# ==================================================
 export-flow-from-registry:
-	@bash scripts/export-flow.sh
+	@export $(cat $(ENV_FILE) | grep -v '^#' | xargs) && bash scripts/export-flow.sh
 
 export-flows-from-registry:
-	@bash scripts/export-all-flows-from-registry.sh
+	@export $(cat $(ENV_FILE) | grep -v '^#' | xargs) && bash scripts/export-all-flows-from-registry.sh
 
 export-flow-with-commit: export-flows-from-registry
-	@echo "$(BLUE)📝 Checking for changes...$(NC)"
+	@echo "Checking for changes..."
 	@git add flows/
 	@if ! git diff --cached --quiet; then \
-		git commit -m "chore: update flow definitions from registry"; \
-		echo "$(GREEN)$(CHECK) Changes committed$(NC)"; \
+		git commit -m "chore: update flow definitions from $(WORKSPACE) registry"; \
+		echo "[OK] Changes committed"; \
 	else \
-		echo "$(CYAN)$(INFO) No changes detected$(NC)"; \
+		echo "No changes detected"; \
 	fi
 
 export-flow-by-id:
 	@if [ -z "$(BUCKET_ID)" ] || [ -z "$(FLOW_ID)" ]; then \
-		echo "$(RED)$(CROSS) BUCKET_ID and FLOW_ID required$(NC)"; \
-		echo "Usage: make export-flow-by-id BUCKET_ID=<id> FLOW_ID=<id>"; \
+		echo "[ERROR] BUCKET_ID and FLOW_ID required"; \
+		echo "Usage: make export-flow-by-id BUCKET_ID=<id> FLOW_ID=<id> ENV=<env>"; \
 		exit 1; \
 	fi
-	@bash scripts/export-flow.sh --bucket-id $(BUCKET_ID) --flow-id $(FLOW_ID)
+	@export $(cat $(ENV_FILE) | grep -v '^#' | xargs) && \
+	bash scripts/export-flow.sh --bucket-id $(BUCKET_ID) --flow-id $(FLOW_ID)
 
 list-registry-buckets:
-	@bash scripts/export-flow.sh --list-buckets
+	@export $(cat $(ENV_FILE) | grep -v '^#' | xargs) && bash scripts/export-flow.sh --list-buckets
 
 list-registry-flows:
 	@if [ -z "$(BUCKET_ID)" ]; then \
-		bash scripts/export-flow.sh --list-flows; \
+		export $(cat $(ENV_FILE) | grep -v '^#' | xargs) && bash scripts/export-flow.sh --list-flows; \
 	else \
-		bash scripts/export-flow.sh --list-flows --bucket-id $(BUCKET_ID); \
+		export $(cat $(ENV_FILE) | grep -v '^#' | xargs) && bash scripts/export-flow.sh --list-flows --bucket-id $(BUCKET_ID); \
 	fi
 
 list-registry-versions:
-	@bash scripts/export-flow.sh --list-versions
+	@export $(cat $(ENV_FILE) | grep -v '^#' | xargs) && bash scripts/export-flow.sh --list-versions
 
 show-registry-ids:
-	@bash scripts/export-flow.sh --list-versions
+	@export $(cat $(ENV_FILE) | grep -v '^#' | xargs) && bash scripts/export-flow.sh --list-versions
 
-# ============================================================================
+# ==================================================
 # SSH ACCESS
-# ============================================================================
+# ==================================================
 ssh-dev:
-	@echo "$(BLUE)🔌 Connecting to Development VM...$(NC)"
+	@echo "Connecting to Development VM..."
 	@bash scripts/access-vm.sh development
 
 ssh-staging:
-	@echo "$(BLUE)🔌 Connecting to Staging VM...$(NC)"
+	@echo "Connecting to Staging VM..."
 	@bash scripts/access-vm.sh staging
 
 ssh-prod:
-	@echo "$(BLUE)🔌 Connecting to Production VM...$(NC)"
+	@echo "Connecting to Production VM..."
 	@bash scripts/access-vm.sh production
 
-# ============================================================================
+# ==================================================
 # BACKUP & RESTORE
-# ============================================================================
+# ==================================================
 backup-flows:
-	@echo "$(BLUE)💾 Creating flows backup...$(NC)"
-	@TIMESTAMP=$$(date +%Y%m%d_%H%M%S); \
-	BACKUP_DIR="flows/backups/$$TIMESTAMP"; \
-	mkdir -p "$$BACKUP_DIR"; \
-	cp flows/*.json "$$BACKUP_DIR/" 2>/dev/null || true; \
-	echo "$(GREEN)$(CHECK) Backup created: $$BACKUP_DIR$(NC)"
+	@echo "Creating flows backup..."
+	@TIMESTAMP=$(date +%Y%m%d_%H%M%S); \
+	BACKUP_DIR="flows/backups/$TIMESTAMP"; \
+	mkdir -p "$BACKUP_DIR"; \
+	cp flows/*.json "$BACKUP_DIR/" 2>/dev/null || true; \
+	echo "[OK] Backup created: $BACKUP_DIR"
 
 restore-flows:
 	@echo ""
-	@echo "$(BLUE)📥 Restoring ALL flows from ALL backups...$(NC)"
+	@echo "Restoring ALL flows from ALL backups..."
 	@echo ""
 	@if [ ! -d "flows/backups" ]; then \
-		echo "$(RED)$(CROSS) No backups directory found$(NC)"; \
-		echo ""; \
+		echo "[ERROR] No backups directory found"; \
 		exit 1; \
 	fi; \
-	TOTAL_BACKUPS=$$(find flows/backups -name "*.json" 2>/dev/null | wc -l | tr -d ' '); \
-	if [ "$$TOTAL_BACKUPS" -eq 0 ]; then \
-		echo "$(YELLOW)$(WARNING) No backup JSON files found$(NC)"; \
-		echo ""; \
+	TOTAL_BACKUPS=$(find flows/backups -name "*.json" 2>/dev/null | wc -l | tr -d ' '); \
+	if [ "$TOTAL_BACKUPS" -eq 0 ]; then \
+		echo "[WARNING] No backup JSON files found"; \
 		exit 1; \
 	fi; \
-	echo "$(CYAN)📊 Backup Statistics:$(NC)"; \
-	BACKUP_DIRS=$$(find flows/backups -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' '); \
-	echo "  $(BULLET) Total backup directories: $$BACKUP_DIRS"; \
-	echo "  $(BULLET) Total flow files: $$TOTAL_BACKUPS"; \
+	echo "Backup Statistics:"; \
+	BACKUP_DIRS=$(find flows/backups -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' '); \
+	echo "  - Total backup directories: $BACKUP_DIRS"; \
+	echo "  - Total flow files: $TOTAL_BACKUPS"; \
 	echo ""; \
-	echo "$(CYAN)📂 Backup directories:$(NC)"; \
+	echo "Backup directories:"; \
 	find flows/backups -mindepth 1 -maxdepth 1 -type d | sort -r | while read backup_dir; do \
-		backup_name=$$(basename "$$backup_dir"); \
-		flow_count=$$(find "$$backup_dir" -name "*.json" 2>/dev/null | wc -l | tr -d ' '); \
-		backup_date=$$(echo "$$backup_name" | sed 's/_/ /'); \
-		echo "  $(GREEN)$(BULLET)$(NC) $$backup_date $(YELLOW)($$flow_count flows)$(NC)"; \
+		backup_name=$(basename "$backup_dir"); \
+		flow_count=$(find "$backup_dir" -name "*.json" 2>/dev/null | wc -l | tr -d ' '); \
+		echo "  - $backup_name ($flow_count flows)"; \
 	done; \
 	echo ""; \
-	echo "$(YELLOW)$(WARNING) This will:$(NC)"; \
+	echo "[WARNING] This will:"; \
 	echo "  1. Clear all existing flows in flows/"; \
 	echo "  2. Copy ALL JSON files from ALL backup directories to flows/"; \
 	echo "  3. Files with duplicate names will be overwritten by newer versions"; \
 	echo ""; \
-	printf "$(CYAN)Continue with restoring ALL backups? [y/N]: $(NC)"; \
+	printf "Continue with restoring ALL backups? [y/N]: "; \
 	read confirm; \
-	if [ "$${confirm}" != "y" ] && [ "$${confirm}" != "Y" ]; then \
+	if [ "${confirm}" != "y" ] && [ "${confirm}" != "Y" ]; then \
 		echo ""; \
-		echo "$(CYAN)$(INFO) Restore cancelled$(NC)"; \
-		echo ""; \
+		echo "Restore cancelled"; \
 		exit 0; \
 	fi; \
 	echo ""; \
-	echo "$(BLUE)📦 Step 1/2: Clearing current flows directory...$(NC)"; \
-	CURRENT_COUNT=$$(find flows -maxdepth 1 -name "*.json" 2>/dev/null | wc -l | tr -d ' '); \
-	if [ "$$CURRENT_COUNT" -gt 0 ]; then \
+	echo "Step 1/2: Clearing current flows directory..."; \
+	CURRENT_COUNT=$(find flows -maxdepth 1 -name "*.json" 2>/dev/null | wc -l | tr -d ' '); \
+	if [ "$CURRENT_COUNT" -gt 0 ]; then \
 		rm -f flows/*.json 2>/dev/null || true; \
-		echo "  $(GREEN)$(CHECK) Removed $$CURRENT_COUNT existing flows$(NC)"; \
+		echo "  [OK] Removed $CURRENT_COUNT existing flows"; \
 	else \
-		echo "  $(CYAN)$(INFO) No existing flows to remove$(NC)"; \
+		echo "  No existing flows to remove"; \
 	fi; \
 	echo ""; \
-	echo "$(BLUE)📦 Step 2/2: Restoring all flows from backups...$(NC)"; \
+	echo "Step 2/2: Restoring all flows from backups..."; \
 	find flows/backups -mindepth 1 -maxdepth 1 -type d | sort | while read backup_dir; do \
-		backup_name=$$(basename "$$backup_dir"); \
-		dir_flow_count=$$(find "$$backup_dir" -name "*.json" 2>/dev/null | wc -l | tr -d ' '); \
-		if [ "$$dir_flow_count" -gt 0 ]; then \
-			cp "$$backup_dir"/*.json flows/ 2>/dev/null || true; \
-			echo "  $(GREEN)$(BULLET)$(NC) Copied $$dir_flow_count flows from $$backup_name"; \
+		backup_name=$(basename "$backup_dir"); \
+		dir_flow_count=$(find "$backup_dir" -name "*.json" 2>/dev/null | wc -l | tr -d ' '); \
+		if [ "$dir_flow_count" -gt 0 ]; then \
+			cp "$backup_dir"/*.json flows/ 2>/dev/null || true; \
+			echo "  - Copied $dir_flow_count flows from $backup_name"; \
 		fi; \
 	done; \
-	FINAL_COUNT=$$(find flows -maxdepth 1 -name "*.json" 2>/dev/null | wc -l | tr -d ' '); \
+	FINAL_COUNT=$(find flows -maxdepth 1 -name "*.json" 2>/dev/null | wc -l | tr -d ' '); \
 	echo ""; \
-	echo "$(GREEN)$(CHECK) Restore complete!$(NC)"; \
+	echo "[OK] Restore complete!"; \
 	echo ""; \
-	echo "$(CYAN)📊 Summary:$(NC)"; \
-	echo "  $(BULLET) Total backup files available: $$TOTAL_BACKUPS"; \
-	echo "  $(BULLET) Unique flows restored: $$FINAL_COUNT"; \
+	echo "Summary:"; \
+	echo "  - Total backup files available: $TOTAL_BACKUPS"; \
+	echo "  - Unique flows restored: $FINAL_COUNT"; \
 	echo ""; \
-	if [ "$$FINAL_COUNT" -lt "$$TOTAL_BACKUPS" ]; then \
-		echo "$(CYAN)$(INFO) Note: Duplicate filenames were merged (latest version kept)$(NC)"; \
+	if [ "$FINAL_COUNT" -lt "$TOTAL_BACKUPS" ]; then \
+		echo "Note: Duplicate filenames were merged (latest version kept)"; \
 		echo ""; \
 	fi

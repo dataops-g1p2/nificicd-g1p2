@@ -1,0 +1,243 @@
+name: VM Registry Commit Trigger
+
+on:
+  
+  repository_dispatch:
+    types: [vm-registry-commit]
+  
+  workflow_dispatch:
+    inputs:
+      source_vm:
+        description: 'Source VM environment'
+        required: true
+        type: choice
+        options:
+          - development
+          - staging
+          - production
+      commit_message:
+        description: 'Commit message from VM'
+        required: false
+        type: string
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+
+  sync-from-vm:
+    name: Sync Changes from VM
+    runs-on: ubuntu-22.04
+    environment: ${{ github.event.client_payload.environment || github.event.inputs.source_vm }}
+    steps:
+
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          token: ${{ secrets.GH_TOKEN }}
+          fetch-depth: 0
+
+      - name: Get VM Configuration
+        id: config
+        run: |
+          ENV="${{ github.event.client_payload.environment || github.event.inputs.source_vm }}"
+          
+          case $ENV in
+            development)
+              echo "branch=develop" >> $GITHUB_OUTPUT
+              echo "resource_group=rg-nificicd-g1p2-dev" >> $GITHUB_OUTPUT
+              echo "vm_name=vm-nifi-development" >> $GITHUB_OUTPUT
+              ;;
+            staging)
+              echo "branch=staging" >> $GITHUB_OUTPUT
+              echo "resource_group=rg-nificicd-g1p2-staging" >> $GITHUB_OUTPUT
+              echo "vm_name=vm-nifi-staging" >> $GITHUB_OUTPUT
+              ;;
+            production)
+              echo "branch=main" >> $GITHUB_OUTPUT
+              echo "resource_group=rg-nificicd-g1p2-prod" >> $GITHUB_OUTPUT
+              echo "vm_name=vm-nifi-production" >> $GITHUB_OUTPUT
+              ;;
+          esac
+          
+          echo "environment=$ENV" >> $GITHUB_OUTPUT
+
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: |
+            {
+              "clientId": "${{ secrets.ARM_CLIENT_ID }}",
+              "clientSecret": "${{ secrets.ARM_CLIENT_SECRET }}",
+              "subscriptionId": "${{ secrets.ARM_SUBSCRIPTION_ID }}",
+              "tenantId": "${{ secrets.ARM_TENANT_ID }}"
+            }
+
+      - name: Get VM IP
+        id: vm_ip
+        run: |
+          VM_IP=$(az vm show \
+            --resource-group ${{ steps.config.outputs.resource_group }} \
+            --name ${{ steps.config.outputs.vm_name }} \
+            --show-details \
+            --query publicIps \
+            -o tsv 2>/dev/null || echo "")
+          
+          if [ -z "$VM_IP" ]; then
+            echo "VM not found or not running"
+            exit 1
+          fi
+          
+          echo "ip=$VM_IP" >> $GITHUB_OUTPUT
+          echo "VM IP: $VM_IP"
+
+      - name: Test SSH Connection
+        run: |
+          VM_IP="${{ steps.vm_ip.outputs.ip }}"
+          VM_USER="${{ secrets.VM_USERNAME }}"
+          
+          # Add VM to known hosts
+          ssh-keyscan -H $VM_IP >> ~/.ssh/known_hosts 2>/dev/null || true
+          
+          for i in {1..3}; do
+            if ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+              $VM_USER@$VM_IP "echo 'SSH connected'" 2>/dev/null; then
+              echo "SSH connection successful"
+              exit 0
+            fi
+            echo "Attempt $i/3 failed, waiting..."
+            [ $i -lt 3 ] && sleep 10
+          done
+          echo "SSH connection failed"
+          exit 1
+
+      - name: Pull Changes from VM
+        run: |
+          VM_IP="${{ steps.vm_ip.outputs.ip }}"
+          VM_USER="${{ secrets.VM_USERNAME }}"
+          
+          # Install rsync if not available
+          sudo apt-get update -qq && sudo apt-get install -y rsync 2>/dev/null || true
+          
+          echo "Pulling changes from VM..."
+          
+          # Sync flows and registry_data from VM to local
+          rsync -avz --delete \
+            -e "ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null" \
+            --include='flows/' \
+            --include='flows/**' \
+            --include='registry_data/' \
+            --include='registry_data/**' \
+            --exclude='*' \
+            $VM_USER@$VM_IP:~/nificicd-g1p2/ ./
+          
+          echo "Changes synced from VM"
+          
+          # Verify what was synced
+          echo "Files synced:"
+          echo "  Flows: $(find flows -type f 2>/dev/null | wc -l) files"
+          echo "  Registry data: $(find registry_data -type f 2>/dev/null | wc -l) files"
+
+      - name: Configure Git
+        run: |
+          git config user.name "nifi-vm-sync[bot]"
+          git config user.email "nifi-vm-sync[bot]@users.noreply.github.com"
+
+      - name: Commit and Push Changes
+        id: push_changes
+        run: |
+          BRANCH="${{ steps.config.outputs.branch }}"
+          ENV="${{ steps.config.outputs.environment }}"
+          
+          # Checkout target branch
+          git fetch origin $BRANCH 2>/dev/null || true
+          git checkout $BRANCH || git checkout -b $BRANCH
+          
+          # Check if there are changes
+          git add flows/ registry_data/ 2>/dev/null || true
+          
+          if git diff --cached --quiet; then
+            echo "ℹNo changes to commit"
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          
+          # Build commit message
+          COMMIT_MSG="${{ github.event.client_payload.commit_message || github.event.inputs.commit_message }}"
+          
+          if [ -z "$COMMIT_MSG" ]; then
+            COMMIT_MSG="Sync from VM registry commit"
+          fi
+          
+          VM_COMMIT="${{ github.event.client_payload.commit_sha }}"
+          VM_AUTHOR="${{ github.event.client_payload.commit_author }}"
+          VM_HOSTNAME="${{ github.event.client_payload.vm_hostname }}"
+          
+          # Create detailed commit message
+          git commit -m "VM Sync: $COMMIT_MSG" -m "
+          Source: $ENV environment (${{ steps.config.outputs.vm_name }})
+          VM Commit: ${VM_COMMIT:-N/A}
+          VM Author: ${VM_AUTHOR:-N/A}
+          VM Hostname: ${VM_HOSTNAME:-N/A}
+          Workflow Run: #${{ github.run_number }}
+          Triggered: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          
+          # Push to GitHub
+          git push origin $BRANCH
+          
+          echo "has_changes=true" >> $GITHUB_OUTPUT
+          echo "Changes pushed to $BRANCH"
+
+      - name: Cleanup
+        if: always()
+        run: rm -f ~/.ssh/deploy_key
+
+      - name: Deployment Status
+        if: steps.push_changes.outputs.has_changes == 'true'
+        run: |
+          BRANCH="${{ steps.config.outputs.branch }}"
+          ENV="${{ steps.config.outputs.environment }}"
+          
+          echo ""
+          echo "╔═════════════════════════════╗"
+          echo "║  VM → GitHub Sync Complete  ║"
+          echo "╚═════════════════════════════╝"
+          echo ""
+          echo "Environment: $ENV"
+          echo "Branch: $BRANCH"
+          echo "Status: Changes committed and pushed"
+          echo ""
+          
+          case $ENV in
+            development)
+              echo "Next Steps:"
+              echo "  1. Deploy to Development (automatic)"
+              echo "  2. Auto-promote to Staging"
+              echo "  3. Auto-promote to Production"
+              ;;
+            staging)
+              echo "Next Steps:"
+              echo "  1. Deploy to Staging (automatic)"
+              echo "  2. Auto-promote to Production"
+              ;;
+            production)
+              echo "Next Steps:"
+              echo "  1. Deploy to Production (automatic)"
+              ;;
+          esac
+          echo ""
+          echo "Monitor: https://github.com/${{ github.repository }}/actions"
+
+      - name: No Changes Summary
+        if: steps.push_changes.outputs.has_changes == 'false'
+        run: |
+          echo ""
+          echo "No changes detected from VM"
+          echo "The VM state matches the current Git state"

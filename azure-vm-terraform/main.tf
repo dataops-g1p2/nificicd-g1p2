@@ -5,7 +5,7 @@ resource "azurerm_resource_group" "rg" {
 
   tags = {
     Environment = var.environment
-    Project     = "nificicd-g1p2"
+    Project     = "NIFICICD-G1P2"
     ManagedBy   = "Terraform"
   }
 }
@@ -133,13 +133,13 @@ resource "azurerm_linux_virtual_machine" "vm" {
   admin_ssh_key {
     username   = var.admin_username
     public_key = var.ssh_public_key
-   }
+  }
 
   os_disk {
-  name                 = "osdisk-${var.prefix}"
-  caching              = "ReadWrite"
-  storage_account_type = "Premium_LRS"
-  disk_size_gb         = 128
+    name                 = "osdisk-${var.prefix}"
+    caching              = "ReadWrite"
+    storage_account_type = "Premium_LRS"
+    disk_size_gb         = 128
   }
 
   source_image_reference {
@@ -159,9 +159,9 @@ resource "azurerm_linux_virtual_machine" "vm" {
   ]
 }
 
-# Custom Script Extension to install Docker, Docker Compose, Make, and Git
-resource "azurerm_virtual_machine_extension" "docker_install" {
-  name                 = "DockerInstall"
+# Minimal Custom Script Extension - Just create directories and update packages
+resource "azurerm_virtual_machine_extension" "vm_setup" {
+  name                 = "VMSetup"
   virtual_machine_id   = azurerm_linux_virtual_machine.vm.id
   publisher            = "Microsoft.Azure.Extensions"
   type                 = "CustomScript"
@@ -170,39 +170,22 @@ resource "azurerm_virtual_machine_extension" "docker_install" {
   settings = jsonencode({
     commandToExecute = <<-EOT
       bash -c '
-      # Update package list
+      # Update package cache
       sudo apt-get update
       
-      # Install Docker
-      curl -fsSL https://get.docker.com -o get-docker.sh && sudo sh get-docker.sh
-      
-      # Install Docker Compose
-      sudo curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
-      sudo chmod +x /usr/local/bin/docker-compose
-      
-      # Install Make and Git
-      sudo apt-get install -y make git
-  
-      # Install GitHub CLI
-      curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
-      sudo chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg
-      echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
-      sudo apt-get update
-      sudo apt-get install -y gh
-      
-      # Add azureuser to docker group
-      sudo usermod -aG docker ${var.admin_username}
-      
-      # Create project directory
+      # Create base directory structure
       sudo mkdir -p /home/${var.admin_username}/nificicd-g1p2
-      sudo chown ${var.admin_username}:${var.admin_username} /home/${var.admin_username}/nificicd-g1p2
+      sudo mkdir -p /home/${var.admin_username}/backups/${var.environment}
+      sudo mkdir -p /home/${var.admin_username}/logs
       
-      # Create backup directories
-      sudo mkdir -p /home/${var.admin_username}/{development,staging,production}-backups
-      sudo chown -R ${var.admin_username}:${var.admin_username} /home/${var.admin_username}/*-backups
+      # Set ownership
+      sudo chown -R ${var.admin_username}:${var.admin_username} /home/${var.admin_username}/nificicd-g1p2
+      sudo chown -R ${var.admin_username}:${var.admin_username} /home/${var.admin_username}/backups
+      sudo chown -R ${var.admin_username}:${var.admin_username} /home/${var.admin_username}/logs
       
       # Log completion
-      echo "VM setup completed at $(date)" | sudo tee /var/log/vm-setup-complete.log
+      echo "VM base setup completed at $(date)" | sudo tee /var/log/vm-setup-complete.log
+      echo "Environment: ${var.environment}" | sudo tee -a /var/log/vm-setup-complete.log
       '
     EOT
   })
@@ -213,7 +196,7 @@ resource "azurerm_virtual_machine_extension" "docker_install" {
   }
 
   timeouts {
-    create = "30m"
+    create = "15m"
   }
 
   depends_on = [

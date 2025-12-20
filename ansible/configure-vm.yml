@@ -1,0 +1,915 @@
+---
+- name: Configure NiFi CI/CD VM
+  hosts: all
+  become: yes
+  gather_facts: yes
+  
+  vars:
+    nifi_user: "{{ ansible_user }}"
+    nifi_home: "/home/{{ nifi_user }}/nificicd-g1p2"
+    environment_name: "{{ nifi_environment }}"
+    github_repo: "{{ lookup('env', 'GITHUB_REPOSITORY') | default('', true) }}"
+    github_pat: "{{ github_pat | default('') }}"
+    ansible_python_interpreter: /usr/bin/python3
+    target_branch: "{{ 'develop' if environment_name == 'development' else ('staging' if environment_name == 'staging' else 'main') }}"
+    valid_environments: ['development', 'staging', 'production']
+    vm_public_ip: "PLACEHOLDER"
+    nifi_username: "admin"
+    nifi_password: "PLACEHOLDER"
+    NIFI_SENSITIVE_PROPS_KEY: "PLACEHOLDER"
+    nifi_https_port: "8443"
+    nifi_registry_port: "18080"
+
+  tasks:
+    # ================
+    # VALIDATE INPUT
+    # ================
+    - name: Validate environment configuration
+      assert:
+        that:
+          - nifi_environment is defined
+          - nifi_environment != ''
+          - nifi_environment in valid_environments
+        fail_msg: |
+          ERROR: Invalid or missing 'nifi_environment' variable!
+          
+          Usage: ansible-playbook -i inventory.ini ansible/configure-vm.yml \
+            -e "nifi_environment=development" \
+            -e "github_repo=your-org/your-repo" \
+            -e "github_pat=your-pat"
+          
+          Valid environments: {{ valid_environments | join(', ') }}
+        success_msg: "Configuration valid for environment: {{ environment_name }}"
+    
+    - name: Display configuration
+      debug:
+        msg:
+          - "=========================================="
+          - " Configuring VM for: {{ environment_name }}"
+          - "=========================================="
+          - "Repository: {{ github_repo }}"
+          - "Branch: {{ target_branch }}"
+          - "PAT: {{ 'Configured' if github_pat != '' else 'NOT SET' }}"
+    
+    # ================
+    # SYSTEM PACKAGES
+    # ================
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+        cache_valid_time: 0
+      retries: 5
+      delay: 10
+      register: apt_update
+      until: apt_update is succeeded
+      environment:
+        DEBIAN_FRONTEND: noninteractive
+    
+    - name: Add Ubuntu Universe repository
+      command: add-apt-repository -y universe
+      register: add_universe
+      changed_when: "'already' not in add_universe.stdout"
+      ignore_errors: yes
+      
+    - name: Install essential packages
+      apt:
+        name:
+          - git
+          - curl
+          - wget
+          - vim
+          - htop
+          - rsync
+          - ca-certificates
+          - gnupg
+          - lsb-release
+          - jq
+          - python3
+          - python3-pip
+          - software-properties-common
+        state: present
+        update_cache: no
+      retries: 3
+      delay: 5
+      environment:
+        DEBIAN_FRONTEND: noninteractive
+
+    - name: Install optional packages
+      apt:
+        name:
+          - build-essential
+          - net-tools
+        state: present
+        update_cache: no
+      ignore_errors: yes
+      environment:
+        DEBIAN_FRONTEND: noninteractive
+
+    # =========================
+    # GITHUB CLI INSTALLATION
+    # =========================
+    - name: Check if GitHub CLI is installed
+      command: gh --version
+      register: gh_check
+      failed_when: false
+      changed_when: false
+      
+    - name: Install GitHub CLI
+      when: gh_check.rc != 0
+      block:
+        - name: Create keyrings directory
+          file:
+            path: /etc/apt/keyrings
+            state: directory
+            mode: '0755'
+            
+        - name: Download GitHub CLI GPG key
+          get_url:
+            url: https://cli.github.com/packages/githubcli-archive-keyring.gpg
+            dest: /etc/apt/keyrings/githubcli-archive-keyring.gpg
+            mode: '0644'
+            
+        - name: Add GitHub CLI repository
+          apt_repository:
+            repo: "deb [arch=amd64 signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main"
+            state: present
+            filename: github-cli
+            
+        - name: Install GitHub CLI package
+          apt:
+            name: gh
+            state: present
+            update_cache: yes
+
+    - name: Configure GitHub CLI authentication
+      when: github_pat != ''
+      become_user: "{{ nifi_user }}"
+      block:
+        - name: Authenticate gh CLI
+          shell: |
+            gh auth logout --hostname github.com 2>/dev/null || true
+            echo "{{ github_pat }}" | tr -d '[:space:]' | gh auth login --hostname github.com --with-token
+            gh config set git_protocol https
+          environment:
+            GH_TOKEN: "{{ github_pat }}"
+          no_log: true
+          register: gh_login_result
+          failed_when: false
+          
+        - name: Verify gh CLI authentication
+          command: gh auth status
+          register: gh_auth_status
+          failed_when: false
+          changed_when: false
+          when: gh_login_result.rc == 0
+
+    # ====================
+    # DOCKER INSTALLATION
+    # ====================
+    - name: Check if Docker is installed
+      command: docker --version
+      register: docker_check
+      failed_when: false
+      changed_when: false
+      
+    - name: Install Docker
+      when: docker_check.rc != 0
+      block:
+        - name: Create keyrings directory
+          file:
+            path: /etc/apt/keyrings
+            state: directory
+            mode: '0755'
+            
+        - name: Download Docker GPG key
+          get_url:
+            url: https://download.docker.com/linux/ubuntu/gpg
+            dest: /etc/apt/keyrings/docker.asc
+            mode: '0644'
+            
+        - name: Add Docker repository
+          apt_repository:
+            repo: "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
+            state: present
+            filename: docker
+            
+        - name: Install Docker packages
+          apt:
+            name:
+              - docker-ce
+              - docker-ce-cli
+              - containerd.io
+              - docker-buildx-plugin
+              - docker-compose-plugin
+            state: present
+            update_cache: yes
+    
+    - name: Configure Docker
+      block:
+        - name: Add user to docker group
+          user:
+            name: "{{ nifi_user }}"
+            groups: docker
+            append: yes
+            
+        - name: Configure Docker daemon
+          copy:
+            content: |
+              {
+                "log-driver": "json-file",
+                "log-opts": {
+                  "max-size": "10m",
+                  "max-file": "3"
+                },
+                "default-ulimits": {
+                  "nofile": {
+                    "Name": "nofile",
+                    "Hard": 65536,
+                    "Soft": 65536
+                  }
+                }
+              }
+            dest: /etc/docker/daemon.json
+            mode: '0644'
+          notify: Restart Docker
+            
+        - name: Enable and start Docker service
+          systemd:
+            name: docker
+            state: started
+            enabled: yes
+
+    # ==================
+    # GIT CONFIGURATION
+    # ==================
+    - name: Configure Git global settings
+      become_user: "{{ nifi_user }}"
+      community.general.git_config:
+        name: "{{ item.name }}"
+        value: "{{ item.value }}"
+        scope: global
+      loop:
+        - { name: 'user.email', value: 'nificicd-g1p2@automation.local' }
+        - { name: 'user.name', value: 'NiFi CI/CD Automation' }
+        - { name: 'init.defaultBranch', value: 'main' }
+
+    # ====================
+    # DIRECTORY STRUCTURE
+    # ====================
+    - name: Create directory structure
+      file:
+        path: "{{ item.path }}"
+        state: directory
+        owner: "{{ item.owner | default(nifi_user) }}"
+        group: "{{ item.group | default(nifi_user) }}"
+        mode: "{{ item.mode | default('0755') }}"
+      loop:
+        - { path: "{{ nifi_home }}" }
+        - { path: "{{ nifi_home }}/flows" }
+        - { path: "{{ nifi_home }}/registry_data", owner: "1000", group: "1000" }
+        - { path: "{{ nifi_home }}/registry_data/nifi_registry_database", owner: "1000", group: "1000" }
+        - { path: "{{ nifi_home }}/registry_data/nifi_registry_flow_storage", owner: "1000", group: "1000" }
+        - { path: "{{ nifi_home }}/config" }
+        - { path: "/home/{{ nifi_user }}/backups/{{ environment_name }}" }
+        - { path: "/home/{{ nifi_user }}/logs" }
+
+    # ==========================
+    # ENVIRONMENT CONFIGURATION 
+    # ==========================
+    - name: Create environment configuration file
+      copy:
+        dest: "/home/{{ nifi_user }}/.nifi_cicd_env"
+        owner: "{{ nifi_user }}"
+        group: "{{ nifi_user }}"
+        mode: '0600'
+        content: |
+          export GITHUB_REPO="{{ github_repo }}"
+          export GITHUB_PAT="{{ github_pat }}"
+          export NIFI_ENV="{{ environment_name }}"
+          export GH_TOKEN="{{ github_pat }}"
+          
+          {% raw %}
+          nifi_check_config() {
+            echo "NiFi CI/CD Configuration Status:"
+            echo "  Repository: ${GITHUB_REPO:-'Not set'}"
+            [ -n "$GITHUB_PAT" ] && echo "  PAT: Set (${#GITHUB_PAT} characters)" || echo "  PAT: Not set"
+            echo "  Environment: ${NIFI_ENV:-'Not set'}"
+            echo ""
+            
+            if command -v gh &> /dev/null && gh auth status &>/dev/null; then
+              echo "  GitHub CLI: Authenticated"
+            fi
+            
+            echo ""
+            [ -z "$GITHUB_PAT" ] && echo "WARNING: GITHUB_PAT is not set!" && return 1
+            
+            if [ -d ~/nificicd-g1p2/.git ]; then
+              echo "Git repository initialized"
+              cd ~/nificicd-g1p2
+              git remote get-url origin &>/dev/null && echo "Git remote configured: $(git remote get-url origin)"
+              
+              # Check if git hook is installed and executable
+              if [ -f .git/hooks/post-commit ] && [ -x .git/hooks/post-commit ]; then
+                echo "Git hook: Installed and executable"
+              else
+                echo "Git hook: Missing or not executable - run: ~/install-git-hook.sh"
+              fi
+            else
+              echo "WARNING: Git repository not initialized"
+            fi
+            
+            # Check for .env file
+            if [ -f ~/nificicd-g1p2/.env.$NIFI_ENV ]; then
+              echo ".env.$NIFI_ENV file exists"
+            else
+              echo "WARNING: .env.$NIFI_ENV not found - will be created by provision workflow"
+            fi
+          }
+          
+          nifi_trigger_workflow() {
+            [ -z "$GITHUB_PAT" ] && echo "ERROR: GITHUB_PAT not set. Run: nifi_check_config" && return 1
+            ~/trigger-workflow.sh "$@"
+          }
+          
+          nifi_gh_trigger_workflow() {
+            [ -z "$GITHUB_REPO" ] && echo "ERROR: GITHUB_REPO not set. Run: nifi_check_config" && return 1
+            
+            MESSAGE="${1:-Manual trigger from VM}"
+            echo "Triggering workflow for $NIFI_ENV using gh CLI..."
+            
+            gh workflow run webhook-trigger.yml \
+              --repo "$GITHUB_REPO" \
+              --ref develop \
+              -f source_vm="$NIFI_ENV" \
+              -f commit_message="$MESSAGE"
+            
+            [ $? -eq 0 ] && echo "Workflow triggered! Check: https://github.com/$GITHUB_REPO/actions" || echo "Failed to trigger workflow"
+          }
+          {% endraw %}
+
+    - name: Source environment in bashrc
+      lineinfile:
+        path: "/home/{{ nifi_user }}/.bashrc"
+        line: "source ~/.nifi_cicd_env 2>/dev/null || true"
+        regexp: "^source.*nifi_cicd_env"
+
+    # ===================================
+    # CREATE PLACEHOLDER .env FILE
+    # ===================================
+    - name: Create placeholder Docker Compose .env file
+      copy:
+        dest: "{{ nifi_home }}/.env.{{ environment_name }}"
+        owner: "{{ nifi_user }}"
+        group: "{{ nifi_user }}"
+        mode: '0600'
+        force: no
+        content: |
+          # Docker Compose Environment File for {{ environment_name }}
+          # This file will be updated by the provision workflow with actual values
+          
+          NIFI_USERNAME={{ nifi_username }}
+          NIFI_PASSWORD={{ nifi_password }}
+          NIFI_SENSITIVE_PROPS_KEY={{ NIFI_SENSITIVE_PROPS_KEY }}
+          VM_PUBLIC_IP={{ vm_public_ip }}
+          NIFI_WEB_PROXY_HOST={{ vm_public_ip }}:{{ nifi_https_port }}
+          NIFI_HTTPS_PORT={{ nifi_https_port }}
+          NIFI_REGISTRY_PORT={{ nifi_registry_port }}
+      register: env_file_created
+
+    - name: Display .env file status
+      debug:
+        msg:
+          - "{{ '.env.' + environment_name + ' file ' + ('created with placeholders' if env_file_created.changed else 'already exists') }}"
+          - "This file will be updated by the provision workflow with actual values"
+
+    # ===============================
+    # AUTOMATED GIT REPOSITORY SETUP
+    # ===============================
+    - name: Check if Git repository exists
+      stat:
+        path: "{{ nifi_home }}/.git"
+      register: git_dir
+      become_user: "{{ nifi_user }}"
+
+    - name: Initialize Git repository with sparse checkout
+      when: not git_dir.stat.exists and github_repo != ''
+      become_user: "{{ nifi_user }}"
+      shell: |
+        cd {{ nifi_home }}
+        
+        # Initialize repository
+        git init
+        git remote add origin https://github.com/{{ github_repo }}.git || true
+        
+        # Enable sparse checkout
+        git config core.sparseCheckout true
+        
+        # Define what to checkout based on environment
+        cat > .git/info/sparse-checkout <<'EOF'
+        # Common files for all environments
+        Makefile
+        README.md
+        .gitignore
+        
+        # Scripts (needed for all environments)
+        scripts/
+        
+        # Ansible (for configuration)
+        ansible/
+        
+        # Environment-specific compose file
+        compose.{{ environment_name }}.yml
+        
+        # Config directory
+        config/
+        
+        # Flows and registry data
+        flows/
+        registry_data/
+        
+        # GitHub workflows (optional, for reference)
+        .github/
+        EOF
+        
+        # Fetch and checkout the target branch
+        git fetch origin {{ target_branch }} || true
+        git checkout -b {{ target_branch }} || true
+        git pull origin {{ target_branch }} || true
+        git branch --set-upstream-to=origin/{{ target_branch }} {{ target_branch }} || true
+        
+        echo "Repository initialized with sparse checkout for {{ environment_name }}"
+      environment:
+        GIT_TERMINAL_PROMPT: '0'
+      ignore_errors: yes
+
+    # =========================
+    # GIT HOOKS & HELPER SCRIPTS
+    # =========================
+    - name: Copy post-commit hook script to home directory
+      copy:
+        src: "{{ playbook_dir }}/../scripts/vm-registry-commit-hook.sh"
+        dest: "/home/{{ nifi_user }}/post-commit-hook.sh"
+        mode: '0755'
+        owner: "{{ nifi_user }}"
+        group: "{{ nifi_user }}"
+
+    - name: Install Git hook
+      when: github_repo != ''
+      become_user: "{{ nifi_user }}"
+      block:
+        - name: Ensure hooks directory exists
+          file:
+            path: "{{ nifi_home }}/.git/hooks"
+            state: directory
+            mode: '0755'
+          
+        - name: Install post-commit hook directly
+          copy:
+            src: "/home/{{ nifi_user }}/post-commit-hook.sh"
+            dest: "{{ nifi_home }}/.git/hooks/post-commit"
+            mode: '0755'
+            owner: "{{ nifi_user }}"
+            group: "{{ nifi_user }}"
+            remote_src: yes
+        
+        - name: Verify hook is executable
+          file:
+            path: "{{ nifi_home }}/.git/hooks/post-commit"
+            mode: '0755'
+            state: file
+        
+        - name: Test hook can source environment
+          shell: |
+            cd {{ nifi_home }}
+            if .git/hooks/post-commit 2>&1 | grep -q "GITHUB_REPO"; then
+              echo "Hook can access environment variables"
+            fi
+          register: hook_test
+          failed_when: false
+          changed_when: false
+
+    - name: Create helper scripts
+      copy:
+        dest: "/home/{{ nifi_user }}/{{ item.name }}"
+        mode: '0755'
+        owner: "{{ nifi_user }}"
+        group: "{{ nifi_user }}"
+        content: "{{ item.content }}"
+      loop:
+        - name: trigger-workflow.sh
+          content: |
+            #!/bin/bash
+            [ -f ~/.nifi_cicd_env ] && source ~/.nifi_cicd_env
+            
+            GITHUB_REPO="${GITHUB_REPO:-}"
+            GITHUB_TOKEN="${GITHUB_PAT:-}"
+            ENVIRONMENT="${NIFI_ENV:-development}"
+            
+            [ -z "$GITHUB_TOKEN" ] || [ -z "$GITHUB_REPO" ] && echo "Error: Configuration incomplete. Run: nifi_check_config" && exit 1
+            
+            MESSAGE="${1:-Manual trigger from VM}"
+            echo "Triggering workflow for $ENVIRONMENT..."
+            
+            RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
+              -H "Accept: application/vnd.github.v3+json" \
+              -H "Authorization: token $GITHUB_TOKEN" \
+              "https://api.github.com/repos/$GITHUB_REPO/dispatches" \
+              -d "{\"event_type\":\"vm-registry-commit\",\"client_payload\":{\"environment\":\"$ENVIRONMENT\",\"commit_message\":\"$MESSAGE\",\"vm_hostname\":\"$(hostname)\"}}")
+            
+            HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+            [ "$HTTP_CODE" = "204" ] && echo "Workflow triggered! Check: https://github.com/$GITHUB_REPO/actions" || echo "Failed (HTTP $HTTP_CODE)"
+
+        - name: install-git-hook.sh
+          content: |
+            #!/bin/bash
+            NIFI_HOME="{{ nifi_home }}"
+            HOOK_DIR="$NIFI_HOME/.git/hooks"
+            HOOK_FILE="$HOOK_DIR/post-commit"
+            SOURCE_HOOK="$HOME/post-commit-hook.sh"
+            
+            echo "=========================================="
+            echo "  Installing Git Post-Commit Hook"
+            echo "=========================================="
+            echo ""
+            
+            # Check if git repo exists
+            if [ ! -d "$NIFI_HOME/.git" ]; then
+              echo "Git repository not initialized at $NIFI_HOME"
+              exit 1
+            fi
+            
+            # Check if source hook exists
+            if [ ! -f "$SOURCE_HOOK" ]; then
+              echo "Source hook not found: $SOURCE_HOOK"
+              echo ""
+              echo "Looking for it in nificicd-g1p2 directory..."
+              if [ -f "$NIFI_HOME/post-commit-hook.sh" ]; then
+                echo "Found it! Copying to home directory..."
+                cp "$NIFI_HOME/post-commit-hook.sh" "$SOURCE_HOOK"
+                chmod +x "$SOURCE_HOOK"
+                echo "Copied to: $SOURCE_HOOK"
+              else
+                echo "Cannot find post-commit-hook.sh"
+                exit 1
+              fi
+            else
+              echo "Source hook found: $SOURCE_HOOK"
+            fi
+            
+            echo ""
+            mkdir -p "$HOOK_DIR"
+            
+            # Backup existing hook if present
+            if [ -f "$HOOK_FILE" ]; then
+              BACKUP="$HOOK_FILE.backup.$(date +%Y%m%d_%H%M%S)"
+              cp "$HOOK_FILE" "$BACKUP"
+              echo "Backed up existing hook: $BACKUP"
+            fi
+            
+            # Install the hook
+            cp "$SOURCE_HOOK" "$HOOK_FILE"
+            chmod +x "$HOOK_FILE"
+            
+            # Verify installation
+            if [ -f "$HOOK_FILE" ] && [ -x "$HOOK_FILE" ]; then
+              echo "Git hook installed and executable!"
+              echo ""
+              echo "Location: $HOOK_FILE"
+              echo ""
+              
+              # Test if hook can access environment
+              echo "Testing environment access..."
+              cd "$NIFI_HOME"
+              if .git/hooks/post-commit 2>&1 | head -1 | grep -qE "(GITHUB_REPO|Missing required)"; then
+                echo "Hook can access environment variables"
+              else
+                echo "Hook may have issues accessing environment"
+                echo "   Make sure to source ~/.nifi_cicd_env in your shell"
+              fi
+              
+              echo ""
+              echo "Test it with:"
+              echo "  cd $NIFI_HOME"
+              echo "  echo 'test' >> flows/test.txt"
+              echo "  git add flows/ && git commit -m 'test: hook verification'"
+              echo ""
+              echo "Or run: ~/test-git-hook.sh"
+            else
+              echo "Hook installation failed"
+              exit 1
+            fi
+
+        - name: test-git-hook.sh
+          content: |
+            #!/bin/bash
+            # Test Git Hook Functionality
+            set -e
+            
+            NIFI_HOME="{{ nifi_home }}"
+            HOOK_FILE="$NIFI_HOME/.git/hooks/post-commit"
+            
+            echo "============================"
+            echo "  Git Hook Diagnostic Test  "
+            echo "============================"
+            echo ""
+            
+            # Check if hook exists
+            if [ ! -f "$HOOK_FILE" ]; then
+              echo "Hook not found: $HOOK_FILE"
+              echo ""
+              echo "Install it with: ~/install-git-hook.sh"
+              exit 1
+            fi
+            
+            # Check if hook is executable
+            if [ ! -x "$HOOK_FILE" ]; then
+              echo "Hook is not executable: $HOOK_FILE"
+              echo ""
+              echo "Fix with: chmod +x $HOOK_FILE"
+              exit 1
+            fi
+            
+            echo "Hook exists and is executable"
+            echo ""
+            
+            # Check configuration
+            source ~/.nifi_cicd_env 2>/dev/null || true
+            
+            if [ -z "$GITHUB_PAT" ] || [ -z "$GITHUB_REPO" ]; then
+              echo "Missing configuration:"
+              [ -z "$GITHUB_REPO" ] && echo "  - GITHUB_REPO"
+              [ -z "$GITHUB_PAT" ] && echo "  - GITHUB_PAT"
+              echo ""
+              echo "Run: nifi_check_config"
+              exit 1
+            fi
+            
+            echo "Configuration present"
+            echo "  Repository: $GITHUB_REPO"
+            echo "  Environment: ${NIFI_ENV:-development}"
+            echo ""
+            
+            # Test hook with a real commit
+            echo "Creating test commit in flows/ directory..."
+            cd "$NIFI_HOME"
+            
+            TEST_FILE="flows/.hook-test-$(date +%s).txt"
+            echo "Hook test at $(date)" > "$TEST_FILE"
+            git add "$TEST_FILE"
+            
+            echo ""
+            echo "Committing test file (this should trigger the hook)..."
+            echo "Watch for webhook trigger message below:"
+            echo "----------------------------------------"
+            
+            git commit -m "test: automated hook verification" 2>&1 | tee /tmp/hook-test.log
+            
+            echo "----------------------------------------"
+            echo ""
+            
+            # Check if workflow was triggered
+            if grep -q "Workflow triggered successfully" /tmp/hook-test.log; then
+              echo "SUCCESS! Hook executed and triggered workflow!"
+              echo ""
+              echo "Monitor progress: https://github.com/$GITHUB_REPO/actions"
+            elif grep -q "No flows or registry_data changes" /tmp/hook-test.log; then
+              echo "Hook executed but skipped (file pattern didn't match)"
+              echo ""
+              echo "The hook only triggers for changes in flows/ or registry_data/"
+              echo "Your test file was in flows/, so this shouldn't happen."
+            else
+              echo "Hook may not have executed"
+              echo ""
+              echo "Debug:"
+              echo "  1. Check hook output: cat /tmp/hook-test.log"
+              echo "  2. Verify hook exists: ls -la $HOOK_FILE"
+              echo "  3. Test hook directly: $HOOK_FILE"
+            fi
+            
+            # Cleanup
+            rm -f /tmp/hook-test.log
+            echo ""
+            echo "Test complete. Check GitHub Actions for workflow run."
+
+        - name: verify-setup.sh
+          content: |
+            #!/bin/bash
+            echo "===================================="
+            echo "  NiFi CI/CD VM Setup Verification  "
+            echo "===================================="
+            echo ""
+            source ~/.nifi_cicd_env 2>/dev/null
+            nifi_check_config
+            echo ""
+            echo "Environment: {{ environment_name }}"
+            echo "Compose file: compose.{{ environment_name }}.yml"
+            echo ""
+            
+            # Check if git hook is installed
+            HOOK_FILE="{{ nifi_home }}/.git/hooks/post-commit"
+            if [ -f "$HOOK_FILE" ] && [ -x "$HOOK_FILE" ]; then
+              echo "Git hook: Installed and executable"
+            else
+              echo "Git hook: Missing or not executable"
+              echo "   Fix: ~/install-git-hook.sh"
+            fi
+            echo ""
+            
+            echo "Quick Tests:"
+            echo "  1. Test hook: ~/test-git-hook.sh"
+            echo "  2. Manual trigger: nifi_trigger_workflow 'Test message'"
+            echo "  3. Real commit:"
+            echo "     cd ~/nificicd-g1p2"
+            echo "     echo 'test' >> flows/test.txt"
+            echo "     git add flows/ && git commit -m 'test: hook verification'"
+
+
+    - name: Create setup instructions
+      copy:
+        dest: "/home/{{ nifi_user }}/SETUP_INSTRUCTIONS.md"
+        owner: "{{ nifi_user }}"
+        group: "{{ nifi_user }}"
+        mode: '0644'
+        content: |
+          # NiFi VM CI/CD Setup - AUTOMATED
+          
+          ## Setup Complete!
+          
+          Your VM is configured with GitHub PAT, GitHub CLI, Git repository (sparse checkout), post-commit hook, and helper scripts.
+          
+          **Environment**: {{ environment_name }}
+          **Compose File**: `compose.{{ environment_name }}.yml`
+          
+          ## Git Hook - Automatic Workflow Trigger
+          
+          The post-commit hook is installed at `~/nificicd-g1p2/.git/hooks/post-commit` and will automatically trigger the GitHub workflow when you commit changes to `flows/` or `registry_data/`.
+          
+          **How it works:**
+          1. You make changes in NiFi
+          2. NiFi Registry commits to local git
+          3. Post-commit hook detects changes
+          4. Hook triggers GitHub Actions workflow
+          5. Workflow syncs changes to GitHub
+          6. Automatic deployment to environments
+          
+          **Test it:**
+          ```bash
+          cd ~/nificicd-g1p2
+          echo "test" >> flows/test.txt
+          git add flows/ && git commit -m "test: hook verification"
+          # You should see: "Workflow triggered successfully!"
+          ```
+          
+          **Troubleshooting:**
+          - If hook doesn't trigger: `~/install-git-hook.sh`
+          - Test hook: `~/test-git-hook.sh`
+          - Manual trigger: `nifi_trigger_workflow "Manual test"`
+          
+          ## Verification
+          
+          ```bash
+          # Check configuration
+          nifi_check_config
+          
+          # Run full verification
+          ~/verify-setup.sh
+          
+          # Test the git hook
+          ~/test-git-hook.sh
+          ```
+          
+          ## Deploy NiFi
+          
+          **Important**: Only deploy after the provision workflow has updated the `.env.{{ environment_name }}` file with real values!
+          
+          ```bash
+          cd ~/nificicd-g1p2
+          
+          # Verify configuration first
+          docker compose -f compose.{{ environment_name }}.yml --env-file .env.{{ environment_name }} config --quiet
+          
+          # Deploy
+          docker compose -f compose.{{ environment_name }}.yml --env-file .env.{{ environment_name }} up -d
+          
+          # Monitor
+          docker compose -f compose.{{ environment_name }}.yml logs -f
+          ```
+          
+          ## Manual Workflow Triggers
+          
+          ```bash
+          # Using curl (via trigger-workflow.sh)
+          nifi_trigger_workflow "Manual trigger message"
+          
+          # Using gh CLI
+          nifi_gh_trigger_workflow "Manual trigger message"
+          ```
+          
+          ## GitHub CLI Commands
+          
+          ```bash
+          # View recent workflow runs
+          gh run list --repo {{ github_repo }}
+          
+          # Watch a workflow run in real-time
+          gh run watch --repo {{ github_repo }}
+          
+          # View workflow details
+          gh workflow view webhook-trigger.yml --repo {{ github_repo }}
+          
+          # Check authentication
+          gh auth status
+          ```
+          
+          ## Useful Commands
+          
+          - `nifi_check_config` - Check configuration status
+          - `nifi_trigger_workflow [msg]` - Trigger workflow (curl)
+          - `nifi_gh_trigger_workflow [msg]` - Trigger workflow (gh CLI)
+          - `~/verify-setup.sh` - Run setup verification
+          - `~/test-git-hook.sh` - Test git hook functionality
+          - `~/install-git-hook.sh` - Reinstall git hook
+          - `gh run list` - View
+
+    # =======================
+    # SYSTEM LIMITS FOR NIFI
+    # =======================
+    - name: Configure system limits for NiFi
+      pam_limits:
+        domain: "{{ nifi_user }}"
+        limit_type: "{{ item.type }}"
+        limit_item: "{{ item.item }}"
+        value: "{{ item.value }}"
+      loop:
+        - { type: 'soft', item: 'nofile', value: '65536' }
+        - { type: 'hard', item: 'nofile', value: '65536' }
+        - { type: 'soft', item: 'nproc', value: '10000' }
+        - { type: 'hard', item: 'nproc', value: '10000' }
+
+    # ==================
+    # AUTOMATED CLEANUP
+    # ==================
+    - name: Set up cron job for backup cleanup
+      cron:
+        name: "Cleanup old {{ environment_name }} backups"
+        minute: "0"
+        hour: "2"
+        job: "find /home/{{ nifi_user }}/backups/{{ environment_name }} -type d -mtime +30 -exec rm -rf {} + 2>/dev/null || true"
+        user: "{{ nifi_user }}"
+
+    # =============
+    # VERIFICATION
+    # =============
+    - name: Verify installations
+      command: "{{ item }} --version"
+      register: version_check
+      changed_when: false
+      failed_when: false
+      loop:
+        - git
+        - docker
+        - jq
+        - gh
+
+    - name: Run setup verification
+      become_user: "{{ nifi_user }}"
+      command: /home/{{ nifi_user }}/verify-setup.sh
+      register: verification_output
+      changed_when: false
+
+    # ==============
+    # FINAL MESSAGE
+    # ==============
+    - name: Display setup summary
+      debug:
+        msg:
+          - "=========================================="
+          - "  VM Configuration Complete"
+          - "=========================================="
+          - "Environment: {{ environment_name }}"
+          - "Repository: {{ github_repo }}"
+          - "Branch: {{ target_branch }}"
+          - "Compose File: compose.{{ environment_name }}.yml"
+          - "Env File: .env.{{ environment_name }} ({{ 'created with placeholders' if env_file_created.changed else 'already exists' }})"
+          - ""
+          - "Status: GitHub PAT: {{ 'Configured' if github_pat != '' else 'NOT SET' }}"
+          - ""
+          - "Sparse Checkout: Only {{ environment_name }} files synced"
+          - ""
+          - ".env file contains placeholders - will be updated by provision workflow"
+          - ""
+          - "Quick Start:"
+          - "  nifi_check_config"
+          - "  cat ~/nificicd-g1p2/.env.{{ environment_name }}  # Verify env file"
+          - "  cd ~/nificicd-g1p2"
+          - "  docker compose -f compose.{{ environment_name }}.yml --env-file .env.{{ environment_name }} up -d"
+          - ""
+          - "Monitor: https://github.com/{{ github_repo }}/actions"
+          - "=========================================="
+        
+  handlers:
+    - name: Restart Docker
+      systemd:
+        name: docker
+        state: restarted
+        daemon_reload: yes
