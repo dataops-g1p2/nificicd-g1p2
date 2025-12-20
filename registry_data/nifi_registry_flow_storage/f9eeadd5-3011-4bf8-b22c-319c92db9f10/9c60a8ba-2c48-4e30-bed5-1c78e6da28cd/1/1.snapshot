@@ -1,0 +1,1232 @@
+{
+  "header" : {
+    "dataModelVersion" : "3"
+  },
+  "content" : {
+    "flowSnapshot" : {
+      "externalControllerServices" : { },
+      "flowContents" : {
+        "comments" : "",
+        "componentType" : "PROCESS_GROUP",
+        "connections" : [ {
+          "backPressureDataSizeThreshold" : "1 GB",
+          "backPressureObjectThreshold" : 10000,
+          "bends" : [ ],
+          "componentType" : "CONNECTION",
+          "destination" : {
+            "comments" : "Generates random purchase amount (100-500) as attribute",
+            "groupId" : "86d23480-1d50-3118-9fba-50f4303d033c",
+            "id" : "2b062ab8-6435-31c1-863d-0581217a26e7",
+            "instanceIdentifier" : "3da34373-019b-1000-a156-18dac261375f",
+            "name" : "ExtractAmount",
+            "type" : "PROCESSOR"
+          },
+          "flowFileExpiration" : "0 sec",
+          "groupIdentifier" : "86d23480-1d50-3118-9fba-50f4303d033c",
+          "identifier" : "579ba8c0-ae68-31d4-b8e3-e9257cc5ed39",
+          "instanceIdentifier" : "3da35e7c-019b-1000-5ff3-3dfa83f2a218",
+          "labelIndex" : 1,
+          "loadBalanceCompression" : "DO_NOT_COMPRESS",
+          "loadBalanceStrategy" : "DO_NOT_LOAD_BALANCE",
+          "prioritizers" : [ ],
+          "selectedRelationships" : [ "success" ],
+          "source" : {
+            "comments" : "Simulates purchase events every 5 seconds",
+            "groupId" : "86d23480-1d50-3118-9fba-50f4303d033c",
+            "id" : "eecf18e8-aee9-3c08-9648-67a8ee83095f",
+            "instanceIdentifier" : "3da34100-019b-1000-57c2-b26ec0499193",
+            "name" : "GenerateUserEvents",
+            "type" : "PROCESSOR"
+          },
+          "zIndex" : 0
+        }, {
+          "backPressureDataSizeThreshold" : "1 GB",
+          "backPressureObjectThreshold" : 10000,
+          "bends" : [ ],
+          "componentType" : "CONNECTION",
+          "destination" : {
+            "comments" : "Enriches medium-value purchases with standard customer data",
+            "groupId" : "86d23480-1d50-3118-9fba-50f4303d033c",
+            "id" : "c1d8d885-d9cc-3916-85d4-6f09fe2be596",
+            "instanceIdentifier" : "3da34b14-019b-1000-25bd-8debde295b1d",
+            "name" : "EnrichMediumValue",
+            "type" : "PROCESSOR"
+          },
+          "flowFileExpiration" : "0 sec",
+          "groupIdentifier" : "86d23480-1d50-3118-9fba-50f4303d033c",
+          "identifier" : "55bcc88c-7d4c-38da-9821-2bb96e77c2cd",
+          "instanceIdentifier" : "3da3644b-019b-1000-2ad7-a79311864536",
+          "labelIndex" : 1,
+          "loadBalanceCompression" : "DO_NOT_COMPRESS",
+          "loadBalanceStrategy" : "DO_NOT_LOAD_BALANCE",
+          "prioritizers" : [ ],
+          "selectedRelationships" : [ "medium-value" ],
+          "source" : {
+            "comments" : "Routes purchases by amount: high (≥200), medium (50-199), low (<50)",
+            "groupId" : "86d23480-1d50-3118-9fba-50f4303d033c",
+            "id" : "249e6ecd-a42f-3749-9c4b-07e7dc69ba9e",
+            "instanceIdentifier" : "3da345f9-019b-1000-94d5-43ac32c226c6",
+            "name" : "RouteOnAttribute",
+            "type" : "PROCESSOR"
+          },
+          "zIndex" : 0
+        }, {
+          "backPressureDataSizeThreshold" : "1 GB",
+          "backPressureObjectThreshold" : 10000,
+          "bends" : [ ],
+          "componentType" : "CONNECTION",
+          "destination" : {
+            "comments" : "Routes purchases by amount: high (≥200), medium (50-199), low (<50)",
+            "groupId" : "86d23480-1d50-3118-9fba-50f4303d033c",
+            "id" : "249e6ecd-a42f-3749-9c4b-07e7dc69ba9e",
+            "instanceIdentifier" : "3da345f9-019b-1000-94d5-43ac32c226c6",
+            "name" : "RouteOnAttribute",
+            "type" : "PROCESSOR"
+          },
+          "flowFileExpiration" : "0 sec",
+          "groupIdentifier" : "86d23480-1d50-3118-9fba-50f4303d033c",
+          "identifier" : "ed31089b-b75d-3feb-b7d8-2ba1d7543f8f",
+          "instanceIdentifier" : "3da36076-019b-1000-b316-6d9ab23e541c",
+          "labelIndex" : 1,
+          "loadBalanceCompression" : "DO_NOT_COMPRESS",
+          "loadBalanceStrategy" : "DO_NOT_LOAD_BALANCE",
+          "prioritizers" : [ ],
+          "selectedRelationships" : [ "success" ],
+          "source" : {
+            "comments" : "Generates random purchase amount (100-500) as attribute",
+            "groupId" : "86d23480-1d50-3118-9fba-50f4303d033c",
+            "id" : "2b062ab8-6435-31c1-863d-0581217a26e7",
+            "instanceIdentifier" : "3da34373-019b-1000-a156-18dac261375f",
+            "name" : "ExtractAmount",
+            "type" : "PROCESSOR"
+          },
+          "zIndex" : 0
+        }, {
+          "backPressureDataSizeThreshold" : "1 GB",
+          "backPressureObjectThreshold" : 10000,
+          "bends" : [ ],
+          "componentType" : "CONNECTION",
+          "destination" : {
+            "comments" : "Logs high-value purchases with premium customer data",
+            "groupId" : "86d23480-1d50-3118-9fba-50f4303d033c",
+            "id" : "f7785e2e-eeb4-3cde-ab5b-fe6f82829416",
+            "instanceIdentifier" : "3da34fd8-019b-1000-61d4-abe268adefeb",
+            "name" : "LogHighValue",
+            "type" : "PROCESSOR"
+          },
+          "flowFileExpiration" : "0 sec",
+          "groupIdentifier" : "86d23480-1d50-3118-9fba-50f4303d033c",
+          "identifier" : "3948b3a6-4eb6-3d3e-b734-75ed0403f216",
+          "instanceIdentifier" : "3da367e2-019b-1000-8297-fb84b66359b7",
+          "labelIndex" : 1,
+          "loadBalanceCompression" : "DO_NOT_COMPRESS",
+          "loadBalanceStrategy" : "DO_NOT_LOAD_BALANCE",
+          "prioritizers" : [ ],
+          "selectedRelationships" : [ "success" ],
+          "source" : {
+            "comments" : "Enriches high-value purchases with premium customer data",
+            "groupId" : "86d23480-1d50-3118-9fba-50f4303d033c",
+            "id" : "4d8547bb-abc5-3d91-a0ea-9a8e264162ab",
+            "instanceIdentifier" : "3da348af-019b-1000-7989-ff675c2e50dd",
+            "name" : "EnrichHighValue",
+            "type" : "PROCESSOR"
+          },
+          "zIndex" : 0
+        }, {
+          "backPressureDataSizeThreshold" : "1 GB",
+          "backPressureObjectThreshold" : 10000,
+          "bends" : [ ],
+          "componentType" : "CONNECTION",
+          "destination" : {
+            "comments" : "Enriches high-value purchases with premium customer data",
+            "groupId" : "86d23480-1d50-3118-9fba-50f4303d033c",
+            "id" : "4d8547bb-abc5-3d91-a0ea-9a8e264162ab",
+            "instanceIdentifier" : "3da348af-019b-1000-7989-ff675c2e50dd",
+            "name" : "EnrichHighValue",
+            "type" : "PROCESSOR"
+          },
+          "flowFileExpiration" : "0 sec",
+          "groupIdentifier" : "86d23480-1d50-3118-9fba-50f4303d033c",
+          "identifier" : "d1d7832f-0d72-3c6b-a468-6ca9240f0016",
+          "instanceIdentifier" : "3da36255-019b-1000-c6fc-52c810e8d107",
+          "labelIndex" : 1,
+          "loadBalanceCompression" : "DO_NOT_COMPRESS",
+          "loadBalanceStrategy" : "DO_NOT_LOAD_BALANCE",
+          "prioritizers" : [ ],
+          "selectedRelationships" : [ "high-value" ],
+          "source" : {
+            "comments" : "Routes purchases by amount: high (≥200), medium (50-199), low (<50)",
+            "groupId" : "86d23480-1d50-3118-9fba-50f4303d033c",
+            "id" : "249e6ecd-a42f-3749-9c4b-07e7dc69ba9e",
+            "instanceIdentifier" : "3da345f9-019b-1000-94d5-43ac32c226c6",
+            "name" : "RouteOnAttribute",
+            "type" : "PROCESSOR"
+          },
+          "zIndex" : 0
+        }, {
+          "backPressureDataSizeThreshold" : "1 GB",
+          "backPressureObjectThreshold" : 10000,
+          "bends" : [ ],
+          "componentType" : "CONNECTION",
+          "destination" : {
+            "comments" : "Enriches low-value purchases for batch processing",
+            "groupId" : "86d23480-1d50-3118-9fba-50f4303d033c",
+            "id" : "687322f0-9e70-3ee6-a38e-e77b2ba41c39",
+            "instanceIdentifier" : "3da34d78-019b-1000-c70d-f7543d12a91d",
+            "name" : "EnrichLowValue",
+            "type" : "PROCESSOR"
+          },
+          "flowFileExpiration" : "0 sec",
+          "groupIdentifier" : "86d23480-1d50-3118-9fba-50f4303d033c",
+          "identifier" : "fa1dd7c1-817c-38d0-a0c9-607e89dc310c",
+          "instanceIdentifier" : "3da3660f-019b-1000-5570-ba064a690c0a",
+          "labelIndex" : 1,
+          "loadBalanceCompression" : "DO_NOT_COMPRESS",
+          "loadBalanceStrategy" : "DO_NOT_LOAD_BALANCE",
+          "prioritizers" : [ ],
+          "selectedRelationships" : [ "low-value" ],
+          "source" : {
+            "comments" : "Routes purchases by amount: high (≥200), medium (50-199), low (<50)",
+            "groupId" : "86d23480-1d50-3118-9fba-50f4303d033c",
+            "id" : "249e6ecd-a42f-3749-9c4b-07e7dc69ba9e",
+            "instanceIdentifier" : "3da345f9-019b-1000-94d5-43ac32c226c6",
+            "name" : "RouteOnAttribute",
+            "type" : "PROCESSOR"
+          },
+          "zIndex" : 0
+        }, {
+          "backPressureDataSizeThreshold" : "1 GB",
+          "backPressureObjectThreshold" : 10000,
+          "bends" : [ ],
+          "componentType" : "CONNECTION",
+          "destination" : {
+            "comments" : "Logs low-value purchases for batch processing",
+            "groupId" : "86d23480-1d50-3118-9fba-50f4303d033c",
+            "id" : "75131b46-760a-3223-80fa-15c367c955dc",
+            "instanceIdentifier" : "3da354b2-019b-1000-722d-2f85774736de",
+            "name" : "LogLowValue",
+            "type" : "PROCESSOR"
+          },
+          "flowFileExpiration" : "0 sec",
+          "groupIdentifier" : "86d23480-1d50-3118-9fba-50f4303d033c",
+          "identifier" : "20cea813-3e4e-325c-8448-185bef07986f",
+          "instanceIdentifier" : "3da36b67-019b-1000-a127-6fc8fa8b38dd",
+          "labelIndex" : 1,
+          "loadBalanceCompression" : "DO_NOT_COMPRESS",
+          "loadBalanceStrategy" : "DO_NOT_LOAD_BALANCE",
+          "prioritizers" : [ ],
+          "selectedRelationships" : [ "success" ],
+          "source" : {
+            "comments" : "Enriches low-value purchases for batch processing",
+            "groupId" : "86d23480-1d50-3118-9fba-50f4303d033c",
+            "id" : "687322f0-9e70-3ee6-a38e-e77b2ba41c39",
+            "instanceIdentifier" : "3da34d78-019b-1000-c70d-f7543d12a91d",
+            "name" : "EnrichLowValue",
+            "type" : "PROCESSOR"
+          },
+          "zIndex" : 0
+        }, {
+          "backPressureDataSizeThreshold" : "1 GB",
+          "backPressureObjectThreshold" : 10000,
+          "bends" : [ ],
+          "componentType" : "CONNECTION",
+          "destination" : {
+            "comments" : "Logs medium-value purchases with standard customer data",
+            "groupId" : "86d23480-1d50-3118-9fba-50f4303d033c",
+            "id" : "6f411ed9-86ee-3bef-9d43-bd85e4af78e3",
+            "instanceIdentifier" : "3da35236-019b-1000-8858-498de412ae7f",
+            "name" : "LogMediumValue",
+            "type" : "PROCESSOR"
+          },
+          "flowFileExpiration" : "0 sec",
+          "groupIdentifier" : "86d23480-1d50-3118-9fba-50f4303d033c",
+          "identifier" : "a47af04d-e067-318e-877b-b137400970d4",
+          "instanceIdentifier" : "3da369a1-019b-1000-7612-94e57dbcba00",
+          "labelIndex" : 1,
+          "loadBalanceCompression" : "DO_NOT_COMPRESS",
+          "loadBalanceStrategy" : "DO_NOT_LOAD_BALANCE",
+          "prioritizers" : [ ],
+          "selectedRelationships" : [ "success" ],
+          "source" : {
+            "comments" : "Enriches medium-value purchases with standard customer data",
+            "groupId" : "86d23480-1d50-3118-9fba-50f4303d033c",
+            "id" : "c1d8d885-d9cc-3916-85d4-6f09fe2be596",
+            "instanceIdentifier" : "3da34b14-019b-1000-25bd-8debde295b1d",
+            "name" : "EnrichMediumValue",
+            "type" : "PROCESSOR"
+          },
+          "zIndex" : 0
+        } ],
+        "controllerServices" : [ ],
+        "defaultBackPressureDataSizeThreshold" : "1 GB",
+        "defaultBackPressureObjectThreshold" : 10000,
+        "defaultFlowFileExpiration" : "0 sec",
+        "executionEngine" : "INHERITED",
+        "flowFileConcurrency" : "UNBOUNDED",
+        "flowFileOutboundPolicy" : "STREAM_WHEN_AVAILABLE",
+        "funnels" : [ ],
+        "identifier" : "86d23480-1d50-3118-9fba-50f4303d033c",
+        "inputPorts" : [ ],
+        "instanceIdentifier" : "3da33e79-019b-1000-1902-27ab8d16672a",
+        "labels" : [ {
+          "componentType" : "LABEL",
+          "groupIdentifier" : "86d23480-1d50-3118-9fba-50f4303d033c",
+          "height" : 120.0,
+          "identifier" : "01f2b283-f365-3e23-b149-6a5b9c414a5d",
+          "instanceIdentifier" : "3da36f9c-019b-1000-bb3f-9dcd7c3f77dc",
+          "label" : "DESIGN PATTERN: Content-Based Router with Data Enrichment\n\nReal-World Use Cases: E-commerce order routing | Financial transaction approvals | IoT sensor data by severity | Customer service ticket prioritization | Healthcare patient triage\n\nBenefits: Automated classification | Optimized resource allocation | SLA compliance | Improved customer experience | Scalable processing",
+          "position" : {
+            "x" : 150.0,
+            "y" : 750.0
+          },
+          "style" : {
+            "font-size" : "12px",
+            "background-color" : "#f3e5f5"
+          },
+          "width" : 1850.0,
+          "zIndex" : 0
+        }, {
+          "componentType" : "LABEL",
+          "groupIdentifier" : "86d23480-1d50-3118-9fba-50f4303d033c",
+          "height" : 150.0,
+          "identifier" : "aada7d8a-f235-39b8-bbf9-19688cb922a5",
+          "instanceIdentifier" : "3da36d81-019b-1000-8f27-233dc242ef86",
+          "label" : "Data Enrichment and Routing Flow - Purchase Processing Pipeline\n\nThis flow demonstrates content-based routing with data enrichment. Generates purchase events, routes by amount into three tiers (HIGH/MEDIUM/LOW), enriches each with tier-specific metadata, and logs separately.\n\nPurchase Tiers: HIGH (≥$200) | MEDIUM ($50-199) | LOW (<$50)\n\nQuick Start: Select all processors → Right-click → Start | Monitor: make logs-nifi",
+          "position" : {
+            "x" : 150.0,
+            "y" : 50.0
+          },
+          "style" : {
+            "font-size" : "14px",
+            "background-color" : "#e3f2fd"
+          },
+          "width" : 1850.0,
+          "zIndex" : 0
+        } ],
+        "maxConcurrentTasks" : 1,
+        "name" : "PurchaseRoutingFlow",
+        "outputPorts" : [ ],
+        "position" : {
+          "x" : 352.0,
+          "y" : 432.0
+        },
+        "processGroups" : [ ],
+        "processors" : [ {
+          "autoTerminatedRelationships" : [ ],
+          "backoffMechanism" : "PENALIZE_FLOWFILE",
+          "bulletinLevel" : "WARN",
+          "bundle" : {
+            "artifact" : "nifi-update-attribute-nar",
+            "group" : "org.apache.nifi",
+            "version" : "2.6.0"
+          },
+          "comments" : "Enriches low-value purchases for batch processing",
+          "componentType" : "PROCESSOR",
+          "concurrentlySchedulableTaskCount" : 1,
+          "executionNode" : "ALL",
+          "groupIdentifier" : "86d23480-1d50-3118-9fba-50f4303d033c",
+          "identifier" : "687322f0-9e70-3ee6-a38e-e77b2ba41c39",
+          "instanceIdentifier" : "3da34d78-019b-1000-c70d-f7543d12a91d",
+          "maxBackoffPeriod" : "10 mins",
+          "name" : "EnrichLowValue",
+          "penaltyDuration" : "30 sec",
+          "position" : {
+            "x" : 1400.0,
+            "y" : 600.0
+          },
+          "properties" : {
+            "enriched.at" : "${now():format('yyyy-MM-dd HH:mm:ss')}",
+            "notification.required" : "false",
+            "Store State" : "Do not store state",
+            "canonical-value-lookup-cache-size" : "100",
+            "processing.queue" : "batch",
+            "customer.tier" : "basic",
+            "priority" : "low"
+          },
+          "propertyDescriptors" : {
+            "enriched.at" : {
+              "displayName" : "enriched.at",
+              "dynamic" : true,
+              "identifiesControllerService" : false,
+              "name" : "enriched.at",
+              "sensitive" : false
+            },
+            "Delete Attributes Expression" : {
+              "displayName" : "Delete Attributes Expression",
+              "dynamic" : false,
+              "identifiesControllerService" : false,
+              "name" : "Delete Attributes Expression",
+              "sensitive" : false
+            },
+            "notification.required" : {
+              "displayName" : "notification.required",
+              "dynamic" : true,
+              "identifiesControllerService" : false,
+              "name" : "notification.required",
+              "sensitive" : false
+            },
+            "Store State" : {
+              "displayName" : "Store State",
+              "dynamic" : false,
+              "identifiesControllerService" : false,
+              "name" : "Store State",
+              "sensitive" : false
+            },
+            "canonical-value-lookup-cache-size" : {
+              "displayName" : "Cache Value Lookup Cache Size",
+              "dynamic" : false,
+              "identifiesControllerService" : false,
+              "name" : "canonical-value-lookup-cache-size",
+              "sensitive" : false
+            },
+            "processing.queue" : {
+              "displayName" : "processing.queue",
+              "dynamic" : true,
+              "identifiesControllerService" : false,
+              "name" : "processing.queue",
+              "sensitive" : false
+            },
+            "customer.tier" : {
+              "displayName" : "customer.tier",
+              "dynamic" : true,
+              "identifiesControllerService" : false,
+              "name" : "customer.tier",
+              "sensitive" : false
+            },
+            "Stateful Variables Initial Value" : {
+              "displayName" : "Stateful Variables Initial Value",
+              "dynamic" : false,
+              "identifiesControllerService" : false,
+              "name" : "Stateful Variables Initial Value",
+              "sensitive" : false
+            },
+            "priority" : {
+              "displayName" : "priority",
+              "dynamic" : true,
+              "identifiesControllerService" : false,
+              "name" : "priority",
+              "sensitive" : false
+            }
+          },
+          "retriedRelationships" : [ ],
+          "retryCount" : 10,
+          "runDurationMillis" : 25,
+          "scheduledState" : "ENABLED",
+          "schedulingPeriod" : "0 sec",
+          "schedulingStrategy" : "TIMER_DRIVEN",
+          "style" : { },
+          "type" : "org.apache.nifi.processors.attributes.UpdateAttribute",
+          "yieldDuration" : "1 sec"
+        }, {
+          "autoTerminatedRelationships" : [ ],
+          "backoffMechanism" : "PENALIZE_FLOWFILE",
+          "bulletinLevel" : "WARN",
+          "bundle" : {
+            "artifact" : "nifi-update-attribute-nar",
+            "group" : "org.apache.nifi",
+            "version" : "2.6.0"
+          },
+          "comments" : "Enriches high-value purchases with premium customer data",
+          "componentType" : "PROCESSOR",
+          "concurrentlySchedulableTaskCount" : 1,
+          "executionNode" : "ALL",
+          "groupIdentifier" : "86d23480-1d50-3118-9fba-50f4303d033c",
+          "identifier" : "4d8547bb-abc5-3d91-a0ea-9a8e264162ab",
+          "instanceIdentifier" : "3da348af-019b-1000-7989-ff675c2e50dd",
+          "maxBackoffPeriod" : "10 mins",
+          "name" : "EnrichHighValue",
+          "penaltyDuration" : "30 sec",
+          "position" : {
+            "x" : 1400.0,
+            "y" : 200.0
+          },
+          "properties" : {
+            "enriched.at" : "${now():format('yyyy-MM-dd HH:mm:ss')}",
+            "notification.required" : "true",
+            "Store State" : "Do not store state",
+            "canonical-value-lookup-cache-size" : "100",
+            "processing.queue" : "priority",
+            "customer.tier" : "premium",
+            "priority" : "high"
+          },
+          "propertyDescriptors" : {
+            "enriched.at" : {
+              "displayName" : "enriched.at",
+              "dynamic" : true,
+              "identifiesControllerService" : false,
+              "name" : "enriched.at",
+              "sensitive" : false
+            },
+            "Delete Attributes Expression" : {
+              "displayName" : "Delete Attributes Expression",
+              "dynamic" : false,
+              "identifiesControllerService" : false,
+              "name" : "Delete Attributes Expression",
+              "sensitive" : false
+            },
+            "notification.required" : {
+              "displayName" : "notification.required",
+              "dynamic" : true,
+              "identifiesControllerService" : false,
+              "name" : "notification.required",
+              "sensitive" : false
+            },
+            "Store State" : {
+              "displayName" : "Store State",
+              "dynamic" : false,
+              "identifiesControllerService" : false,
+              "name" : "Store State",
+              "sensitive" : false
+            },
+            "canonical-value-lookup-cache-size" : {
+              "displayName" : "Cache Value Lookup Cache Size",
+              "dynamic" : false,
+              "identifiesControllerService" : false,
+              "name" : "canonical-value-lookup-cache-size",
+              "sensitive" : false
+            },
+            "processing.queue" : {
+              "displayName" : "processing.queue",
+              "dynamic" : true,
+              "identifiesControllerService" : false,
+              "name" : "processing.queue",
+              "sensitive" : false
+            },
+            "customer.tier" : {
+              "displayName" : "customer.tier",
+              "dynamic" : true,
+              "identifiesControllerService" : false,
+              "name" : "customer.tier",
+              "sensitive" : false
+            },
+            "Stateful Variables Initial Value" : {
+              "displayName" : "Stateful Variables Initial Value",
+              "dynamic" : false,
+              "identifiesControllerService" : false,
+              "name" : "Stateful Variables Initial Value",
+              "sensitive" : false
+            },
+            "priority" : {
+              "displayName" : "priority",
+              "dynamic" : true,
+              "identifiesControllerService" : false,
+              "name" : "priority",
+              "sensitive" : false
+            }
+          },
+          "retriedRelationships" : [ ],
+          "retryCount" : 10,
+          "runDurationMillis" : 25,
+          "scheduledState" : "ENABLED",
+          "schedulingPeriod" : "0 sec",
+          "schedulingStrategy" : "TIMER_DRIVEN",
+          "style" : { },
+          "type" : "org.apache.nifi.processors.attributes.UpdateAttribute",
+          "yieldDuration" : "1 sec"
+        }, {
+          "autoTerminatedRelationships" : [ "success" ],
+          "backoffMechanism" : "PENALIZE_FLOWFILE",
+          "bulletinLevel" : "WARN",
+          "bundle" : {
+            "artifact" : "nifi-standard-nar",
+            "group" : "org.apache.nifi",
+            "version" : "2.6.0"
+          },
+          "comments" : "Logs medium-value purchases with standard customer data",
+          "componentType" : "PROCESSOR",
+          "concurrentlySchedulableTaskCount" : 1,
+          "executionNode" : "ALL",
+          "groupIdentifier" : "86d23480-1d50-3118-9fba-50f4303d033c",
+          "identifier" : "6f411ed9-86ee-3bef-9d43-bd85e4af78e3",
+          "instanceIdentifier" : "3da35236-019b-1000-8858-498de412ae7f",
+          "maxBackoffPeriod" : "10 mins",
+          "name" : "LogMediumValue",
+          "penaltyDuration" : "30 sec",
+          "position" : {
+            "x" : 1800.0,
+            "y" : 400.0
+          },
+          "properties" : {
+            "Log prefix" : "MEDIUM-VALUE: ",
+            "character-set" : "UTF-8",
+            "Log FlowFile Properties" : "true",
+            "Log Level" : "info",
+            "Attributes to Log" : "purchase.amount,priority,customer.tier,notification.required,processing.queue",
+            "attributes-to-log-regex" : ".*",
+            "Output Format" : "Line per Attribute",
+            "Log Payload" : "true"
+          },
+          "propertyDescriptors" : {
+            "Log prefix" : {
+              "displayName" : "Log prefix",
+              "dynamic" : false,
+              "identifiesControllerService" : false,
+              "name" : "Log prefix",
+              "sensitive" : false
+            },
+            "character-set" : {
+              "displayName" : "Character Set",
+              "dynamic" : false,
+              "identifiesControllerService" : false,
+              "name" : "character-set",
+              "sensitive" : false
+            },
+            "Log FlowFile Properties" : {
+              "displayName" : "Log FlowFile Properties",
+              "dynamic" : false,
+              "identifiesControllerService" : false,
+              "name" : "Log FlowFile Properties",
+              "sensitive" : false
+            },
+            "Log Level" : {
+              "displayName" : "Log Level",
+              "dynamic" : false,
+              "identifiesControllerService" : false,
+              "name" : "Log Level",
+              "sensitive" : false
+            },
+            "attributes-to-ignore-regex" : {
+              "displayName" : "Attributes to Ignore by Regular Expression",
+              "dynamic" : false,
+              "identifiesControllerService" : false,
+              "name" : "attributes-to-ignore-regex",
+              "sensitive" : false
+            },
+            "Attributes to Ignore" : {
+              "displayName" : "Attributes to Ignore",
+              "dynamic" : false,
+              "identifiesControllerService" : false,
+              "name" : "Attributes to Ignore",
+              "sensitive" : false
+            },
+            "Attributes to Log" : {
+              "displayName" : "Attributes to Log",
+              "dynamic" : false,
+              "identifiesControllerService" : false,
+              "name" : "Attributes to Log",
+              "sensitive" : false
+            },
+            "attributes-to-log-regex" : {
+              "displayName" : "Attributes to Log by Regular Expression",
+              "dynamic" : false,
+              "identifiesControllerService" : false,
+              "name" : "attributes-to-log-regex",
+              "sensitive" : false
+            },
+            "Output Format" : {
+              "displayName" : "Output Format",
+              "dynamic" : false,
+              "identifiesControllerService" : false,
+              "name" : "Output Format",
+              "sensitive" : false
+            },
+            "Log Payload" : {
+              "displayName" : "Log Payload",
+              "dynamic" : false,
+              "identifiesControllerService" : false,
+              "name" : "Log Payload",
+              "sensitive" : false
+            }
+          },
+          "retriedRelationships" : [ ],
+          "retryCount" : 10,
+          "runDurationMillis" : 25,
+          "scheduledState" : "ENABLED",
+          "schedulingPeriod" : "0 sec",
+          "schedulingStrategy" : "TIMER_DRIVEN",
+          "style" : { },
+          "type" : "org.apache.nifi.processors.standard.LogAttribute",
+          "yieldDuration" : "1 sec"
+        }, {
+          "autoTerminatedRelationships" : [ "success" ],
+          "backoffMechanism" : "PENALIZE_FLOWFILE",
+          "bulletinLevel" : "WARN",
+          "bundle" : {
+            "artifact" : "nifi-standard-nar",
+            "group" : "org.apache.nifi",
+            "version" : "2.6.0"
+          },
+          "comments" : "Logs high-value purchases with premium customer data",
+          "componentType" : "PROCESSOR",
+          "concurrentlySchedulableTaskCount" : 1,
+          "executionNode" : "ALL",
+          "groupIdentifier" : "86d23480-1d50-3118-9fba-50f4303d033c",
+          "identifier" : "f7785e2e-eeb4-3cde-ab5b-fe6f82829416",
+          "instanceIdentifier" : "3da34fd8-019b-1000-61d4-abe268adefeb",
+          "maxBackoffPeriod" : "10 mins",
+          "name" : "LogHighValue",
+          "penaltyDuration" : "30 sec",
+          "position" : {
+            "x" : 1800.0,
+            "y" : 200.0
+          },
+          "properties" : {
+            "Log prefix" : "HIGH-VALUE: ",
+            "character-set" : "UTF-8",
+            "Log FlowFile Properties" : "true",
+            "Log Level" : "info",
+            "Attributes to Log" : "purchase.amount,priority,customer.tier,notification.required,processing.queue",
+            "attributes-to-log-regex" : ".*",
+            "Output Format" : "Line per Attribute",
+            "Log Payload" : "true"
+          },
+          "propertyDescriptors" : {
+            "Log prefix" : {
+              "displayName" : "Log prefix",
+              "dynamic" : false,
+              "identifiesControllerService" : false,
+              "name" : "Log prefix",
+              "sensitive" : false
+            },
+            "character-set" : {
+              "displayName" : "Character Set",
+              "dynamic" : false,
+              "identifiesControllerService" : false,
+              "name" : "character-set",
+              "sensitive" : false
+            },
+            "Log FlowFile Properties" : {
+              "displayName" : "Log FlowFile Properties",
+              "dynamic" : false,
+              "identifiesControllerService" : false,
+              "name" : "Log FlowFile Properties",
+              "sensitive" : false
+            },
+            "Log Level" : {
+              "displayName" : "Log Level",
+              "dynamic" : false,
+              "identifiesControllerService" : false,
+              "name" : "Log Level",
+              "sensitive" : false
+            },
+            "attributes-to-ignore-regex" : {
+              "displayName" : "Attributes to Ignore by Regular Expression",
+              "dynamic" : false,
+              "identifiesControllerService" : false,
+              "name" : "attributes-to-ignore-regex",
+              "sensitive" : false
+            },
+            "Attributes to Ignore" : {
+              "displayName" : "Attributes to Ignore",
+              "dynamic" : false,
+              "identifiesControllerService" : false,
+              "name" : "Attributes to Ignore",
+              "sensitive" : false
+            },
+            "Attributes to Log" : {
+              "displayName" : "Attributes to Log",
+              "dynamic" : false,
+              "identifiesControllerService" : false,
+              "name" : "Attributes to Log",
+              "sensitive" : false
+            },
+            "attributes-to-log-regex" : {
+              "displayName" : "Attributes to Log by Regular Expression",
+              "dynamic" : false,
+              "identifiesControllerService" : false,
+              "name" : "attributes-to-log-regex",
+              "sensitive" : false
+            },
+            "Output Format" : {
+              "displayName" : "Output Format",
+              "dynamic" : false,
+              "identifiesControllerService" : false,
+              "name" : "Output Format",
+              "sensitive" : false
+            },
+            "Log Payload" : {
+              "displayName" : "Log Payload",
+              "dynamic" : false,
+              "identifiesControllerService" : false,
+              "name" : "Log Payload",
+              "sensitive" : false
+            }
+          },
+          "retriedRelationships" : [ ],
+          "retryCount" : 10,
+          "runDurationMillis" : 25,
+          "scheduledState" : "ENABLED",
+          "schedulingPeriod" : "0 sec",
+          "schedulingStrategy" : "TIMER_DRIVEN",
+          "style" : { },
+          "type" : "org.apache.nifi.processors.standard.LogAttribute",
+          "yieldDuration" : "1 sec"
+        }, {
+          "autoTerminatedRelationships" : [ "unmatched" ],
+          "backoffMechanism" : "PENALIZE_FLOWFILE",
+          "bulletinLevel" : "WARN",
+          "bundle" : {
+            "artifact" : "nifi-standard-nar",
+            "group" : "org.apache.nifi",
+            "version" : "2.6.0"
+          },
+          "comments" : "Routes purchases by amount: high (≥200), medium (50-199), low (<50)",
+          "componentType" : "PROCESSOR",
+          "concurrentlySchedulableTaskCount" : 1,
+          "executionNode" : "ALL",
+          "groupIdentifier" : "86d23480-1d50-3118-9fba-50f4303d033c",
+          "identifier" : "249e6ecd-a42f-3749-9c4b-07e7dc69ba9e",
+          "instanceIdentifier" : "3da345f9-019b-1000-94d5-43ac32c226c6",
+          "maxBackoffPeriod" : "10 mins",
+          "name" : "RouteOnAttribute",
+          "penaltyDuration" : "30 sec",
+          "position" : {
+            "x" : 1000.0,
+            "y" : 400.0
+          },
+          "properties" : {
+            "Routing Strategy" : "Route to Property name",
+            "low-value" : "${purchase.amount:toNumber():lt(50)}",
+            "high-value" : "${purchase.amount:toNumber():ge(200)}",
+            "medium-value" : "${purchase.amount:toNumber():ge(50):and(${purchase.amount:toNumber():lt(200)})}"
+          },
+          "propertyDescriptors" : {
+            "Routing Strategy" : {
+              "displayName" : "Routing Strategy",
+              "dynamic" : false,
+              "identifiesControllerService" : false,
+              "name" : "Routing Strategy",
+              "sensitive" : false
+            },
+            "low-value" : {
+              "displayName" : "low-value",
+              "dynamic" : true,
+              "identifiesControllerService" : false,
+              "name" : "low-value",
+              "sensitive" : false
+            },
+            "high-value" : {
+              "displayName" : "high-value",
+              "dynamic" : true,
+              "identifiesControllerService" : false,
+              "name" : "high-value",
+              "sensitive" : false
+            },
+            "medium-value" : {
+              "displayName" : "medium-value",
+              "dynamic" : true,
+              "identifiesControllerService" : false,
+              "name" : "medium-value",
+              "sensitive" : false
+            }
+          },
+          "retriedRelationships" : [ ],
+          "retryCount" : 10,
+          "runDurationMillis" : 25,
+          "scheduledState" : "ENABLED",
+          "schedulingPeriod" : "0 sec",
+          "schedulingStrategy" : "TIMER_DRIVEN",
+          "style" : { },
+          "type" : "org.apache.nifi.processors.standard.RouteOnAttribute",
+          "yieldDuration" : "1 sec"
+        }, {
+          "autoTerminatedRelationships" : [ ],
+          "backoffMechanism" : "PENALIZE_FLOWFILE",
+          "bulletinLevel" : "WARN",
+          "bundle" : {
+            "artifact" : "nifi-standard-nar",
+            "group" : "org.apache.nifi",
+            "version" : "2.6.0"
+          },
+          "comments" : "Simulates purchase events every 5 seconds",
+          "componentType" : "PROCESSOR",
+          "concurrentlySchedulableTaskCount" : 1,
+          "executionNode" : "ALL",
+          "groupIdentifier" : "86d23480-1d50-3118-9fba-50f4303d033c",
+          "identifier" : "eecf18e8-aee9-3c08-9648-67a8ee83095f",
+          "instanceIdentifier" : "3da34100-019b-1000-57c2-b26ec0499193",
+          "maxBackoffPeriod" : "10 mins",
+          "name" : "GenerateUserEvents",
+          "penaltyDuration" : "30 sec",
+          "position" : {
+            "x" : 200.0,
+            "y" : 400.0
+          },
+          "properties" : {
+            "character-set" : "UTF-8",
+            "File Size" : "0B",
+            "Batch Size" : "1",
+            "Unique FlowFiles" : "true",
+            "Custom Text" : "Purchase event",
+            "Character Set" : "UTF-8",
+            "Data Format" : "Text"
+          },
+          "propertyDescriptors" : {
+            "character-set" : {
+              "displayName" : "Character Set",
+              "dynamic" : false,
+              "identifiesControllerService" : false,
+              "name" : "character-set",
+              "sensitive" : false
+            },
+            "File Size" : {
+              "displayName" : "File Size",
+              "dynamic" : false,
+              "identifiesControllerService" : false,
+              "name" : "File Size",
+              "sensitive" : false
+            },
+            "mime-type" : {
+              "displayName" : "Mime Type",
+              "dynamic" : false,
+              "identifiesControllerService" : false,
+              "name" : "mime-type",
+              "sensitive" : false
+            },
+            "generate-ff-custom-text" : {
+              "displayName" : "Custom Text",
+              "dynamic" : false,
+              "identifiesControllerService" : false,
+              "name" : "generate-ff-custom-text",
+              "sensitive" : false
+            },
+            "Batch Size" : {
+              "displayName" : "Batch Size",
+              "dynamic" : false,
+              "identifiesControllerService" : false,
+              "name" : "Batch Size",
+              "sensitive" : false
+            },
+            "Unique FlowFiles" : {
+              "displayName" : "Unique FlowFiles",
+              "dynamic" : false,
+              "identifiesControllerService" : false,
+              "name" : "Unique FlowFiles",
+              "sensitive" : false
+            },
+            "Custom Text" : {
+              "displayName" : "Custom Text",
+              "dynamic" : true,
+              "identifiesControllerService" : false,
+              "name" : "Custom Text",
+              "sensitive" : false
+            },
+            "Character Set" : {
+              "displayName" : "Character Set",
+              "dynamic" : true,
+              "identifiesControllerService" : false,
+              "name" : "Character Set",
+              "sensitive" : false
+            },
+            "Data Format" : {
+              "displayName" : "Data Format",
+              "dynamic" : false,
+              "identifiesControllerService" : false,
+              "name" : "Data Format",
+              "sensitive" : false
+            }
+          },
+          "retriedRelationships" : [ ],
+          "retryCount" : 10,
+          "runDurationMillis" : 0,
+          "scheduledState" : "ENABLED",
+          "schedulingPeriod" : "5 sec",
+          "schedulingStrategy" : "TIMER_DRIVEN",
+          "style" : { },
+          "type" : "org.apache.nifi.processors.standard.GenerateFlowFile",
+          "yieldDuration" : "1 sec"
+        }, {
+          "autoTerminatedRelationships" : [ "success" ],
+          "backoffMechanism" : "PENALIZE_FLOWFILE",
+          "bulletinLevel" : "WARN",
+          "bundle" : {
+            "artifact" : "nifi-standard-nar",
+            "group" : "org.apache.nifi",
+            "version" : "2.6.0"
+          },
+          "comments" : "Logs low-value purchases for batch processing",
+          "componentType" : "PROCESSOR",
+          "concurrentlySchedulableTaskCount" : 1,
+          "executionNode" : "ALL",
+          "groupIdentifier" : "86d23480-1d50-3118-9fba-50f4303d033c",
+          "identifier" : "75131b46-760a-3223-80fa-15c367c955dc",
+          "instanceIdentifier" : "3da354b2-019b-1000-722d-2f85774736de",
+          "maxBackoffPeriod" : "10 mins",
+          "name" : "LogLowValue",
+          "penaltyDuration" : "30 sec",
+          "position" : {
+            "x" : 1800.0,
+            "y" : 600.0
+          },
+          "properties" : {
+            "Log prefix" : "LOW-VALUE: ",
+            "character-set" : "UTF-8",
+            "Log FlowFile Properties" : "true",
+            "Log Level" : "info",
+            "Attributes to Log" : "purchase.amount,priority,customer.tier,notification.required,processing.queue",
+            "attributes-to-log-regex" : ".*",
+            "Output Format" : "Line per Attribute",
+            "Log Payload" : "true"
+          },
+          "propertyDescriptors" : {
+            "Log prefix" : {
+              "displayName" : "Log prefix",
+              "dynamic" : false,
+              "identifiesControllerService" : false,
+              "name" : "Log prefix",
+              "sensitive" : false
+            },
+            "character-set" : {
+              "displayName" : "Character Set",
+              "dynamic" : false,
+              "identifiesControllerService" : false,
+              "name" : "character-set",
+              "sensitive" : false
+            },
+            "Log FlowFile Properties" : {
+              "displayName" : "Log FlowFile Properties",
+              "dynamic" : false,
+              "identifiesControllerService" : false,
+              "name" : "Log FlowFile Properties",
+              "sensitive" : false
+            },
+            "Log Level" : {
+              "displayName" : "Log Level",
+              "dynamic" : false,
+              "identifiesControllerService" : false,
+              "name" : "Log Level",
+              "sensitive" : false
+            },
+            "attributes-to-ignore-regex" : {
+              "displayName" : "Attributes to Ignore by Regular Expression",
+              "dynamic" : false,
+              "identifiesControllerService" : false,
+              "name" : "attributes-to-ignore-regex",
+              "sensitive" : false
+            },
+            "Attributes to Ignore" : {
+              "displayName" : "Attributes to Ignore",
+              "dynamic" : false,
+              "identifiesControllerService" : false,
+              "name" : "Attributes to Ignore",
+              "sensitive" : false
+            },
+            "Attributes to Log" : {
+              "displayName" : "Attributes to Log",
+              "dynamic" : false,
+              "identifiesControllerService" : false,
+              "name" : "Attributes to Log",
+              "sensitive" : false
+            },
+            "attributes-to-log-regex" : {
+              "displayName" : "Attributes to Log by Regular Expression",
+              "dynamic" : false,
+              "identifiesControllerService" : false,
+              "name" : "attributes-to-log-regex",
+              "sensitive" : false
+            },
+            "Output Format" : {
+              "displayName" : "Output Format",
+              "dynamic" : false,
+              "identifiesControllerService" : false,
+              "name" : "Output Format",
+              "sensitive" : false
+            },
+            "Log Payload" : {
+              "displayName" : "Log Payload",
+              "dynamic" : false,
+              "identifiesControllerService" : false,
+              "name" : "Log Payload",
+              "sensitive" : false
+            }
+          },
+          "retriedRelationships" : [ ],
+          "retryCount" : 10,
+          "runDurationMillis" : 25,
+          "scheduledState" : "ENABLED",
+          "schedulingPeriod" : "0 sec",
+          "schedulingStrategy" : "TIMER_DRIVEN",
+          "style" : { },
+          "type" : "org.apache.nifi.processors.standard.LogAttribute",
+          "yieldDuration" : "1 sec"
+        }, {
+          "autoTerminatedRelationships" : [ ],
+          "backoffMechanism" : "PENALIZE_FLOWFILE",
+          "bulletinLevel" : "WARN",
+          "bundle" : {
+            "artifact" : "nifi-update-attribute-nar",
+            "group" : "org.apache.nifi",
+            "version" : "2.6.0"
+          },
+          "comments" : "Generates random purchase amount (100-500) as attribute",
+          "componentType" : "PROCESSOR",
+          "concurrentlySchedulableTaskCount" : 1,
+          "executionNode" : "ALL",
+          "groupIdentifier" : "86d23480-1d50-3118-9fba-50f4303d033c",
+          "identifier" : "2b062ab8-6435-31c1-863d-0581217a26e7",
+          "instanceIdentifier" : "3da34373-019b-1000-a156-18dac261375f",
+          "maxBackoffPeriod" : "10 mins",
+          "name" : "ExtractAmount",
+          "penaltyDuration" : "30 sec",
+          "position" : {
+            "x" : 600.0,
+            "y" : 400.0
+          },
+          "properties" : {
+            "purchase.amount" : "${literal(100):plus(${random():mod(400)})}",
+            "Store State" : "Do not store state",
+            "canonical-value-lookup-cache-size" : "100"
+          },
+          "propertyDescriptors" : {
+            "Delete Attributes Expression" : {
+              "displayName" : "Delete Attributes Expression",
+              "dynamic" : false,
+              "identifiesControllerService" : false,
+              "name" : "Delete Attributes Expression",
+              "sensitive" : false
+            },
+            "purchase.amount" : {
+              "displayName" : "purchase.amount",
+              "dynamic" : true,
+              "identifiesControllerService" : false,
+              "name" : "purchase.amount",
+              "sensitive" : false
+            },
+            "Store State" : {
+              "displayName" : "Store State",
+              "dynamic" : false,
+              "identifiesControllerService" : false,
+              "name" : "Store State",
+              "sensitive" : false
+            },
+            "canonical-value-lookup-cache-size" : {
+              "displayName" : "Cache Value Lookup Cache Size",
+              "dynamic" : false,
+              "identifiesControllerService" : false,
+              "name" : "canonical-value-lookup-cache-size",
+              "sensitive" : false
+            },
+            "Stateful Variables Initial Value" : {
+              "displayName" : "Stateful Variables Initial Value",
+              "dynamic" : false,
+              "identifiesControllerService" : false,
+              "name" : "Stateful Variables Initial Value",
+              "sensitive" : false
+            }
+          },
+          "retriedRelationships" : [ ],
+          "retryCount" : 10,
+          "runDurationMillis" : 25,
+          "scheduledState" : "ENABLED",
+          "schedulingPeriod" : "0 sec",
+          "schedulingStrategy" : "TIMER_DRIVEN",
+          "style" : { },
+          "type" : "org.apache.nifi.processors.attributes.UpdateAttribute",
+          "yieldDuration" : "1 sec"
+        }, {
+          "autoTerminatedRelationships" : [ ],
+          "backoffMechanism" : "PENALIZE_FLOWFILE",
+          "bulletinLevel" : "WARN",
+          "bundle" : {
+            "artifact" : "nifi-update-attribute-nar",
+            "group" : "org.apache.nifi",
+            "version" : "2.6.0"
+          },
+          "comments" : "Enriches medium-value purchases with standard customer data",
+          "componentType" : "PROCESSOR",
+          "concurrentlySchedulableTaskCount" : 1,
+          "executionNode" : "ALL",
+          "groupIdentifier" : "86d23480-1d50-3118-9fba-50f4303d033c",
+          "identifier" : "c1d8d885-d9cc-3916-85d4-6f09fe2be596",
+          "instanceIdentifier" : "3da34b14-019b-1000-25bd-8debde295b1d",
+          "maxBackoffPeriod" : "10 mins",
+          "name" : "EnrichMediumValue",
+          "penaltyDuration" : "30 sec",
+          "position" : {
+            "x" : 1400.0,
+            "y" : 400.0
+          },
+          "properties" : {
+            "enriched.at" : "${now():format('yyyy-MM-dd HH:mm:ss')}",
+            "notification.required" : "false",
+            "Store State" : "Do not store state",
+            "canonical-value-lookup-cache-size" : "100",
+            "processing.queue" : "standard",
+            "customer.tier" : "standard",
+            "priority" : "medium"
+          },
+          "propertyDescriptors" : {
+            "enriched.at" : {
+              "displayName" : "enriched.at",
+              "dynamic" : true,
+              "identifiesControllerService" : false,
+              "name" : "enriched.at",
+              "sensitive" : false
+            },
+            "Delete Attributes Expression" : {
+              "displayName" : "Delete Attributes Expression",
+              "dynamic" : false,
+              "identifiesControllerService" : false,
+              "name" : "Delete Attributes Expression",
+              "sensitive" : false
+            },
+            "notification.required" : {
+              "displayName" : "notification.required",
+              "dynamic" : true,
+              "identifiesControllerService" : false,
+              "name" : "notification.required",
+              "sensitive" : false
+            },
+            "Store State" : {
+              "displayName" : "Store State",
+              "dynamic" : false,
+              "identifiesControllerService" : false,
+              "name" : "Store State",
+              "sensitive" : false
+            },
+            "canonical-value-lookup-cache-size" : {
+              "displayName" : "Cache Value Lookup Cache Size",
+              "dynamic" : false,
+              "identifiesControllerService" : false,
+              "name" : "canonical-value-lookup-cache-size",
+              "sensitive" : false
+            },
+            "processing.queue" : {
+              "displayName" : "processing.queue",
+              "dynamic" : true,
+              "identifiesControllerService" : false,
+              "name" : "processing.queue",
+              "sensitive" : false
+            },
+            "customer.tier" : {
+              "displayName" : "customer.tier",
+              "dynamic" : true,
+              "identifiesControllerService" : false,
+              "name" : "customer.tier",
+              "sensitive" : false
+            },
+            "Stateful Variables Initial Value" : {
+              "displayName" : "Stateful Variables Initial Value",
+              "dynamic" : false,
+              "identifiesControllerService" : false,
+              "name" : "Stateful Variables Initial Value",
+              "sensitive" : false
+            },
+            "priority" : {
+              "displayName" : "priority",
+              "dynamic" : true,
+              "identifiesControllerService" : false,
+              "name" : "priority",
+              "sensitive" : false
+            }
+          },
+          "retriedRelationships" : [ ],
+          "retryCount" : 10,
+          "runDurationMillis" : 25,
+          "scheduledState" : "ENABLED",
+          "schedulingPeriod" : "0 sec",
+          "schedulingStrategy" : "TIMER_DRIVEN",
+          "style" : { },
+          "type" : "org.apache.nifi.processors.attributes.UpdateAttribute",
+          "yieldDuration" : "1 sec"
+        } ],
+        "remoteProcessGroups" : [ ],
+        "scheduledState" : "ENABLED",
+        "statelessFlowTimeout" : "1 min"
+      },
+      "flowEncodingVersion" : "1.0",
+      "parameterContexts" : { },
+      "parameterProviders" : { }
+    }
+  }
+}
