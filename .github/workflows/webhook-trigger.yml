@@ -160,7 +160,7 @@ jobs:
           else
             # Environment branches use their configured target
             TARGET_BRANCH="${{ steps.config.outputs.branch }}"
-            echo "📦 Environment branch: $SOURCE_BRANCH → $TARGET_BRANCH"
+            echo "Environment branch: $SOURCE_BRANCH → $TARGET_BRANCH"
           fi
           
           echo "target_branch=$TARGET_BRANCH" >> $GITHUB_OUTPUT
@@ -185,9 +185,9 @@ jobs:
             PR_BRANCH="vm-sync/${ENV}/${TIMESTAMP}"
           fi
 
-          echo "🎯 Source branch: $SOURCE_BRANCH"
-          echo "🎯 Target branch: $TARGET_BRANCH"
-          echo "🌿 PR branch: $PR_BRANCH"
+          echo "Source branch: $SOURCE_BRANCH"
+          echo "Target branch: $TARGET_BRANCH"
+          echo "PR branch: $PR_BRANCH"
 
           # Fetch all branches
           git fetch origin
@@ -203,7 +203,7 @@ jobs:
 
           # Check for changes
           if git diff --cached --quiet; then
-            echo "ℹ️ No changes to commit"
+            echo "No changes to commit"
             echo "has_changes=false" >> $GITHUB_OUTPUT
             exit 0
           fi
@@ -236,14 +236,14 @@ jobs:
           fi
 
           # Push PR branch (NOT protected branch)
-          echo "📤 Pushing to: $PR_BRANCH (safe, not protected)"
+          echo "Pushing to: $PR_BRANCH (safe, not protected)"
           git push origin "$PR_BRANCH"
 
           echo "has_changes=true" >> $GITHUB_OUTPUT
           echo "pr_branch=$PR_BRANCH" >> $GITHUB_OUTPUT
           echo "source_branch=$SOURCE_BRANCH" >> $GITHUB_OUTPUT
           echo "target_branch=$TARGET_BRANCH" >> $GITHUB_OUTPUT
-          echo "✅ Changes committed to PR branch"
+          echo "Changes committed to PR branch"
 
       - name: Ensure PR Labels Exist
         if: steps.commit_changes.outputs.has_changes == 'true'
@@ -256,7 +256,7 @@ jobs:
           gh label create "development" --color "1D76DB" --description "Development environment" --force 2>/dev/null || true
           gh label create "staging" --color "FB8500" --description "Staging environment" --force 2>/dev/null || true
           gh label create "production" --color "D93F0B" --description "Production environment" --force 2>/dev/null || true
-          echo "✅ Labels verified/created"
+          echo "Labels verified/created"
 
       - name: Create Pull Request
         if: steps.commit_changes.outputs.has_changes == 'true'
@@ -276,8 +276,8 @@ jobs:
 
           # Build PR body
           if [ "$IS_FEATURE_BRANCH" = "true" ]; then
-            PR_TITLE="🌿 VM Sync [${SOURCE_BRANCH}]: $COMMIT_MSG"
-            PR_BODY="## 🌿 Feature Branch VM Sync
+            PR_TITLE="VM Sync [${SOURCE_BRANCH}]: $COMMIT_MSG"
+            PR_BODY="## Feature Branch VM Sync
 
           **Source Branch:** \`$SOURCE_BRANCH\`
           **Target Branch:** \`$TARGET_BRANCH\`
@@ -285,46 +285,46 @@ jobs:
           **VM Commit:** \`${VM_COMMIT}\`
           **VM Author:** ${VM_AUTHOR}
 
-          ### 📝 Changes
+          ### Changes
           This PR contains NiFi flow and registry changes from the **$SOURCE_BRANCH** feature branch on the **$ENV** VM.
 
           **Commit Message:** $COMMIT_MSG
 
-          ### 🚀 After Merging
-          - ✅ Changes will be merged to \`$TARGET_BRANCH\`
-          - 🔄 Deployment workflow will trigger automatically
-          - 📦 NiFi will be updated in $ENV environment
+          ### After Merging
+          - Changes will be merged to \`$TARGET_BRANCH\`
+          - Deployment workflow will trigger automatically
+          - NiFi will be updated in $ENV environment
 
           ---
-          *🤖 Automated sync from VM feature branch - Workflow run [#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})*"
+          *Automated sync from VM feature branch - Workflow run [#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})*"
           else
-            PR_TITLE="📄 VM Sync [$ENV]: $COMMIT_MSG"
-            PR_BODY="## 📄 VM Registry Sync
+            PR_TITLE="VM Sync [$ENV]: $COMMIT_MSG"
+            PR_BODY="## VM Registry Sync
 
           **Environment:** \`$ENV\`
           **Target Branch:** \`$TARGET_BRANCH\`
           **VM Commit:** \`${VM_COMMIT}\`
           **VM Author:** ${VM_AUTHOR}
 
-          ### 📝 Changes
+          ### Changes
           This PR contains NiFi flow and registry changes synced from the **$ENV** VM.
 
           **Commit Message:** $COMMIT_MSG
 
-          ### 🚀 After Merging
-          - ✅ Changes will be merged to \`$TARGET_BRANCH\`
-          - 🔄 Deployment workflow will trigger automatically
-          - 📦 NiFi will be updated in $ENV environment
+          ### After Merging
+          - Changes will be merged to \`$TARGET_BRANCH\`
+          - Deployment workflow will trigger automatically
+          - NiFi will be updated in $ENV environment
 
           ---
-          *🤖 Automated sync from VM - Workflow run [#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})*"
+          *Automated sync from VM - Workflow run [#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})*"
           fi
 
           # Check if PR already exists for this branch
           EXISTING_PR=$(gh pr list --head "$PR_BRANCH" --base "$TARGET_BRANCH" --json number --jq '.[0].number' 2>/dev/null || echo "")
 
           if [ -n "$EXISTING_PR" ]; then
-            echo "ℹ️ PR already exists: #$EXISTING_PR"
+            echo "PR already exists: #$EXISTING_PR"
             PR_URL="https://github.com/${{ github.repository }}/pull/$EXISTING_PR"
             echo "pr_number=$EXISTING_PR" >> $GITHUB_OUTPUT
             echo "pr_url=$PR_URL" >> $GITHUB_OUTPUT
@@ -332,7 +332,7 @@ jobs:
           fi
 
           # Create PR
-          echo "📋 Creating pull request..."
+          echo "Creating pull request..."
           PR_URL=$(gh pr create \
             --title "$PR_TITLE" \
             --body "$PR_BODY" \
@@ -343,7 +343,7 @@ jobs:
             --label "$ENV" 2>&1)
 
           if [ $? -eq 0 ]; then
-            echo "✅ Pull Request created"
+            echo "Pull Request created"
             echo "$PR_URL"
 
             # Get PR number
@@ -351,7 +351,7 @@ jobs:
             echo "pr_number=$PR_NUMBER" >> $GITHUB_OUTPUT
             echo "pr_url=$PR_URL" >> $GITHUB_OUTPUT
           else
-            echo "❌ Failed to create PR"
+            echo "Failed to create PR"
             echo "$PR_URL"
             exit 1
           fi
@@ -370,22 +370,22 @@ jobs:
           PR_URL="${{ steps.create_pr.outputs.pr_url }}"
 
           echo ""
-          echo "╔═══════════════════════════════════╗"
-          echo "║  ✅ VM Sync Complete (PR Created) ║"
-          echo "╚═══════════════════════════════════╝"
+          echo "╔════════════════════════════════╗"
+          echo "║  VM Sync Complete (PR Created) ║"
+          echo "╚════════════════════════════════╝"
           echo ""
           
           if [ "$IS_FEATURE_BRANCH" = "true" ]; then
-            echo "🌿 Feature Branch: $SOURCE_BRANCH"
+            echo "Feature Branch: $SOURCE_BRANCH"
           fi
           
-          echo "📍 Environment: $ENV"
-          echo "🎯 Target Branch: $TARGET_BRANCH"
+          echo "Environment: $ENV"
+          echo "Target Branch: $TARGET_BRANCH"
           echo ""
-          echo "📋 Pull Request:"
+          echo "Pull Request:"
           echo "   $PR_URL"
           echo ""
-          echo "📌 Next Steps:"
+          echo "Next Steps:"
           echo "   1. Review the PR (link above)"
           echo "   2. Merge the PR when ready"
           echo "   3. Deployment will trigger automatically"
@@ -395,6 +395,6 @@ jobs:
         if: steps.commit_changes.outputs.has_changes == 'false'
         run: |
           echo ""
-          echo "ℹ️ No changes detected"
+          echo "No changes detected"
           echo "The VM state matches the current Git state"
           echo ""
