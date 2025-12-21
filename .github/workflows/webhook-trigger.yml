@@ -245,6 +245,19 @@ jobs:
           echo "target_branch=$TARGET_BRANCH" >> $GITHUB_OUTPUT
           echo "✅ Changes committed to PR branch"
 
+      - name: Ensure PR Labels Exist
+        if: steps.commit_changes.outputs.has_changes == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: |
+          # Create labels if they don't exist
+          gh label create "vm-sync" --color "0E8A16" --description "Automated VM sync" --force 2>/dev/null || true
+          gh label create "automated" --color "FBCA04" --description "Automated workflow" --force 2>/dev/null || true
+          gh label create "development" --color "1D76DB" --description "Development environment" --force 2>/dev/null || true
+          gh label create "staging" --color "FB8500" --description "Staging environment" --force 2>/dev/null || true
+          gh label create "production" --color "D93F0B" --description "Production environment" --force 2>/dev/null || true
+          echo "✅ Labels verified/created"
+
       - name: Create Pull Request
         if: steps.commit_changes.outputs.has_changes == 'true'
         id: create_pr
@@ -357,9 +370,9 @@ jobs:
           PR_URL="${{ steps.create_pr.outputs.pr_url }}"
 
           echo ""
-          echo "╔════════════════════════════════════╗"
+          echo "╔═══════════════════════════════════╗"
           echo "║  ✅ VM Sync Complete (PR Created) ║"
-          echo "╚════════════════════════════════════╝"
+          echo "╚═══════════════════════════════════╝"
           echo ""
           
           if [ "$IS_FEATURE_BRANCH" = "true" ]; then
