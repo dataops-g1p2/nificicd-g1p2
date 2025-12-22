@@ -58,11 +58,13 @@ jobs:
           token: ${{ secrets.GH_TOKEN }}
           fetch-depth: 0
 
-      - name: Merge to Staging
+      - name: Configure Git
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          
+
+      - name: Merge to Staging
+        run: |
           git fetch origin staging:staging 2>/dev/null || git checkout -b staging
           git checkout staging
           
@@ -72,8 +74,11 @@ jobs:
           Commit: ${{ github.sha }}"; then
             echo "Merge successful"
           else
-            git diff --name-only --diff-filter=U | xargs -I {} git checkout --theirs {}
-            git add . && git commit -m "chore: auto-promote (conflicts resolved)"
+            git diff --name-only --diff-filter=U | while read f; do
+              [ -n "$f" ] && git checkout --theirs "$f"
+            done
+            git add .
+            git commit -m "chore: auto-promote (conflicts resolved)"
           fi
           
           git push origin staging

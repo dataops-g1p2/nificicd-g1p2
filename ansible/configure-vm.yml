@@ -44,9 +44,9 @@
     - name: Display configuration
       debug:
         msg:
-          - "============================================"
-          - " Configuring VM for: {{ environment_name }} " 
-          - "============================================"
+          - "=========================================="
+          - " Configuring VM for: {{ environment_name }}"
+          - "=========================================="
           - "Repository: {{ github_repo }}"
           - "Branch: {{ target_branch }}"
           - "PAT: {{ 'Configured' if github_pat != '' else 'NOT SET' }}"
@@ -211,7 +211,6 @@
             name: "{{ nifi_user }}"
             groups: docker
             append: yes
-          register: user_added_to_docker
             
         - name: Configure Docker daemon
           copy:
@@ -240,22 +239,19 @@
             state: started
             enabled: yes
 
-        - name: Notify about Docker group membership
-          debug:
-            msg:
-              - "IMPORTANT: You've been added to the docker group"
-              - "Log out and back in for Docker access, OR run: newgrp docker"
-          when: user_added_to_docker.changed
-
     # ==================
     # GIT CONFIGURATION
     # ==================
-    - name: Configure Git init.defaultBranch only
+    - name: Configure Git global settings
       become_user: "{{ nifi_user }}"
       community.general.git_config:
-        name: "init.defaultBranch"
-        value: "main"
+        name: "{{ item.name }}"
+        value: "{{ item.value }}"
         scope: global
+      loop:
+        - { name: 'user.email', value: 'nificicd-g1p2@automation.local' }
+        - { name: 'user.name', value: 'NiFi CI/CD Automation' }
+        - { name: 'init.defaultBranch', value: 'main' }
 
     # ====================
     # DIRECTORY STRUCTURE
@@ -299,19 +295,6 @@
             [ -n "$GITHUB_PAT" ] && echo "  PAT: Set (${#GITHUB_PAT} characters)" || echo "  PAT: Not set"
             echo "  Environment: ${NIFI_ENV:-'Not set'}"
             echo ""
-            
-            # Check Git identity
-            GIT_NAME=$(git config --global user.name 2>/dev/null)
-            GIT_EMAIL=$(git config --global user.email 2>/dev/null)
-            
-            if [ -n "$GIT_NAME" ] && [ -n "$GIT_EMAIL" ]; then
-              echo "  Git Identity: $GIT_NAME <$GIT_EMAIL>"
-            else
-              echo "  Git Identity: NOT CONFIGURED"
-              echo ""
-              echo "  WARNING: Configure your identity to get credit for your work!"
-              echo "  Run: ~/setup-my-identity.sh"
-            fi
             
             if command -v gh &> /dev/null && gh auth status &>/dev/null; then
               echo "  GitHub CLI: Authenticated"
@@ -459,25 +442,6 @@
         GIT_TERMINAL_PROMPT: '0'
       ignore_errors: yes
 
-    - name: Ensure Git remote is configured
-      become_user: "{{ nifi_user }}"
-      when: git_dir.stat.exists and github_repo != ''
-      block:
-        - name: Check git remote configuration
-          command: git config --get remote.origin.url
-          args:
-            chdir: "{{ nifi_home }}"
-          register: git_remote_check
-          failed_when: false
-          changed_when: false
-        
-        - name: Configure git remote if missing
-          command: git remote add origin https://github.com/{{ github_repo }}.git
-          args:
-            chdir: "{{ nifi_home }}"
-          when: git_remote_check.rc != 0
-          failed_when: false
-
     # =========================
     # GIT HOOKS & HELPER SCRIPTS
     # =========================
@@ -524,70 +488,6 @@
           failed_when: false
           changed_when: false
 
-    - name: Create developer identity setup script
-      copy:
-        dest: "/home/{{ nifi_user }}/setup-my-identity.sh"
-        mode: '0755'
-        owner: "{{ nifi_user }}"
-        group: "{{ nifi_user }}"
-        content: |
-          #!/bin/bash
-          echo "=============================="
-          echo "  Configure Your Git Identity "
-          echo "=============================="
-          echo ""
-          echo "This ensures YOUR commits are attributed to YOU,"
-          echo "not a generic automation user."
-          echo ""
-          
-          # Check if already configured
-          CURRENT_NAME=$(git config --global user.name 2>/dev/null)
-          CURRENT_EMAIL=$(git config --global user.email 2>/dev/null)
-          
-          if [ -n "$CURRENT_NAME" ] && [ -n "$CURRENT_EMAIL" ]; then
-            echo "Current identity:"
-            echo "  Name: $CURRENT_NAME"
-            echo "  Email: $CURRENT_EMAIL"
-            echo ""
-            read -p "Update this identity? (y/N): " UPDATE
-            if [[ ! "$UPDATE" =~ ^[Yy]$ ]]; then
-              echo "Keeping current identity"
-              exit 0
-            fi
-          fi
-          
-          echo "Enter your information:"
-          read -p "  Full name: " DEV_NAME
-          read -p "  Email (use your GitHub email): " DEV_EMAIL
-          
-          if [ -z "$DEV_NAME" ] || [ -z "$DEV_EMAIL" ]; then
-            echo ""
-            echo "ERROR: Name and email are required"
-            exit 1
-          fi
-          
-          # Configure Git
-          git config --global user.name "$DEV_NAME"
-          git config --global user.email "$DEV_EMAIL"
-          
-          echo ""
-          echo "========================================"
-          echo "  Git Identity Configured Successfully! "
-          ech "========================================="
-          echo ""
-          echo "  Name: $(git config --global user.name)"
-          echo "  Email: $(git config --global user.email)"
-          echo ""
-          echo "All your commits will now be attributed to YOU!"
-          echo ""
-          echo "Test it:"
-          echo "  cd ~/nificicd-g1p2"
-          echo "  echo 'test by $(git config --global user.name)' >> flows/test.txt"
-          echo "  git add flows/test.txt"
-          echo "  git commit -m 'test: verify my identity'"
-          echo "  git log -1 --format='%an <%ae>'"
-          echo ""
-
     - name: Create helper scripts
       copy:
         dest: "/home/{{ nifi_user }}/{{ item.name }}"
@@ -627,41 +527,73 @@
             HOOK_FILE="$HOOK_DIR/post-commit"
             SOURCE_HOOK="$HOME/post-commit-hook.sh"
             
-            echo "=================================="
-            echo "  Installing Git Post-Commit Hook "
-            echo "=================================="
+            echo "=========================================="
+            echo "  Installing Git Post-Commit Hook"
+            echo "=========================================="
             echo ""
             
+            # Check if git repo exists
             if [ ! -d "$NIFI_HOME/.git" ]; then
               echo "Git repository not initialized at $NIFI_HOME"
               exit 1
             fi
             
+            # Check if source hook exists
             if [ ! -f "$SOURCE_HOOK" ]; then
               echo "Source hook not found: $SOURCE_HOOK"
+              echo ""
+              echo "Looking for it in nificicd-g1p2 directory..."
               if [ -f "$NIFI_HOME/post-commit-hook.sh" ]; then
+                echo "Found it! Copying to home directory..."
                 cp "$NIFI_HOME/post-commit-hook.sh" "$SOURCE_HOOK"
                 chmod +x "$SOURCE_HOOK"
+                echo "Copied to: $SOURCE_HOOK"
               else
                 echo "Cannot find post-commit-hook.sh"
                 exit 1
               fi
+            else
+              echo "Source hook found: $SOURCE_HOOK"
             fi
             
+            echo ""
             mkdir -p "$HOOK_DIR"
             
+            # Backup existing hook if present
             if [ -f "$HOOK_FILE" ]; then
               BACKUP="$HOOK_FILE.backup.$(date +%Y%m%d_%H%M%S)"
               cp "$HOOK_FILE" "$BACKUP"
               echo "Backed up existing hook: $BACKUP"
             fi
             
+            # Install the hook
             cp "$SOURCE_HOOK" "$HOOK_FILE"
             chmod +x "$HOOK_FILE"
             
+            # Verify installation
             if [ -f "$HOOK_FILE" ] && [ -x "$HOOK_FILE" ]; then
               echo "Git hook installed and executable!"
+              echo ""
               echo "Location: $HOOK_FILE"
+              echo ""
+              
+              # Test if hook can access environment
+              echo "Testing environment access..."
+              cd "$NIFI_HOME"
+              if .git/hooks/post-commit 2>&1 | head -1 | grep -qE "(GITHUB_REPO|Missing required)"; then
+                echo "Hook can access environment variables"
+              else
+                echo "Hook may have issues accessing environment"
+                echo "   Make sure to source ~/.nifi_cicd_env in your shell"
+              fi
+              
+              echo ""
+              echo "Test it with:"
+              echo "  cd $NIFI_HOME"
+              echo "  echo 'test' >> flows/test.txt"
+              echo "  git add flows/ && git commit -m 'test: hook verification'"
+              echo ""
+              echo "Or run: ~/test-git-hook.sh"
             else
               echo "Hook installation failed"
               exit 1
@@ -670,6 +602,7 @@
         - name: test-git-hook.sh
           content: |
             #!/bin/bash
+            # Test Git Hook Functionality
             set -e
             
             NIFI_HOME="{{ nifi_home }}"
@@ -680,14 +613,18 @@
             echo "============================"
             echo ""
             
+            # Check if hook exists
             if [ ! -f "$HOOK_FILE" ]; then
               echo "Hook not found: $HOOK_FILE"
+              echo ""
               echo "Install it with: ~/install-git-hook.sh"
               exit 1
             fi
             
+            # Check if hook is executable
             if [ ! -x "$HOOK_FILE" ]; then
               echo "Hook is not executable: $HOOK_FILE"
+              echo ""
               echo "Fix with: chmod +x $HOOK_FILE"
               exit 1
             fi
@@ -695,6 +632,7 @@
             echo "Hook exists and is executable"
             echo ""
             
+            # Check configuration
             source ~/.nifi_cicd_env 2>/dev/null || true
             
             if [ -z "$GITHUB_PAT" ] || [ -z "$GITHUB_REPO" ]; then
@@ -711,7 +649,8 @@
             echo "  Environment: ${NIFI_ENV:-development}"
             echo ""
             
-            echo "Creating test commit..."
+            # Test hook with a real commit
+            echo "Creating test commit in flows/ directory..."
             cd "$NIFI_HOME"
             
             TEST_FILE="flows/.hook-test-$(date +%s).txt"
@@ -719,7 +658,8 @@
             git add "$TEST_FILE"
             
             echo ""
-            echo "Committing (hook should trigger):"
+            echo "Committing test file (this should trigger the hook)..."
+            echo "Watch for webhook trigger message below:"
             echo "----------------------------------------"
             
             git commit -m "test: automated hook verification" 2>&1 | tee /tmp/hook-test.log
@@ -727,13 +667,29 @@
             echo "----------------------------------------"
             echo ""
             
+            # Check if workflow was triggered
             if grep -q "Workflow triggered successfully" /tmp/hook-test.log; then
               echo "SUCCESS! Hook executed and triggered workflow!"
+              echo ""
+              echo "Monitor progress: https://github.com/$GITHUB_REPO/actions"
+            elif grep -q "No flows or registry_data changes" /tmp/hook-test.log; then
+              echo "Hook executed but skipped (file pattern didn't match)"
+              echo ""
+              echo "The hook only triggers for changes in flows/ or registry_data/"
+              echo "Your test file was in flows/, so this shouldn't happen."
             else
-              echo "Hook may not have executed correctly"
+              echo "Hook may not have executed"
+              echo ""
+              echo "Debug:"
+              echo "  1. Check hook output: cat /tmp/hook-test.log"
+              echo "  2. Verify hook exists: ls -la $HOOK_FILE"
+              echo "  3. Test hook directly: $HOOK_FILE"
             fi
             
+            # Cleanup
             rm -f /tmp/hook-test.log
+            echo ""
+            echo "Test complete. Check GitHub Actions for workflow run."
 
         - name: verify-setup.sh
           content: |
@@ -749,6 +705,7 @@
             echo "Compose file: compose.{{ environment_name }}.yml"
             echo ""
             
+            # Check if git hook is installed
             HOOK_FILE="{{ nifi_home }}/.git/hooks/post-commit"
             if [ -f "$HOOK_FILE" ] && [ -x "$HOOK_FILE" ]; then
               echo "Git hook: Installed and executable"
@@ -759,254 +716,199 @@
             echo ""
             
             echo "Quick Tests:"
-            echo "  1. Configure identity: ~/setup-my-identity.sh"
-            echo "  2. Test hook: ~/test-git-hook.sh"
-            echo "  3. Manual trigger: nifi_trigger_workflow 'Test message'"
+            echo "  1. Test hook: ~/test-git-hook.sh"
+            echo "  2. Manual trigger: nifi_trigger_workflow 'Test message'"
+            echo "  3. Real commit:"
+            echo "     cd ~/nificicd-g1p2"
+            echo "     echo 'test' >> flows/test.txt"
+            echo "     git add flows/ && git commit -m 'test: hook verification'"
 
-        - name: backup-nifi.sh
-          content: |
-            #!/bin/bash
-            BACKUP_DIR="/home/{{ nifi_user }}/backups/{{ environment_name }}"
-            TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-            BACKUP_FILE="$BACKUP_DIR/nifi-backup-$TIMESTAMP.tar.gz"
-            
-            echo "Creating NiFi backup..."
-            
-            # Create backup
-            tar -czf "$BACKUP_FILE" \
-              -C "{{ nifi_home }}" flows/ registry_data/ .env.{{ environment_name }} 2>/dev/null
-            
-            if [ $? -ne 0 ]; then
-              echo "ERROR: Backup creation failed"
-              exit 1
-            fi
-            
-            # Verify backup integrity
-            tar -tzf "$BACKUP_FILE" >/dev/null 2>&1
-            
-            if [ $? -eq 0 ]; then
-              SIZE=$(du -h "$BACKUP_FILE" | cut -f1)
-              echo "✓ Backup created and verified: $BACKUP_FILE ($SIZE)"
-              echo "$TIMESTAMP: Backup verified ($SIZE)" >> "$BACKUP_DIR/backup.log"
-            else
-              echo "✗ Backup verification FAILED: $BACKUP_FILE"
-              echo "$TIMESTAMP: Backup verification FAILED" >> "$BACKUP_DIR/backup.log"
-              rm -f "$BACKUP_FILE"
-              exit 1
-            fi
-            
-            # Retention policy: Keep last 7 days daily, then weekly for 30 days
-            find "$BACKUP_DIR" -name "nifi-backup-*.tar.gz" -mtime +7 -mtime -30 \
-              ! -name "*01.tar.gz" ! -name "*08.tar.gz" ! -name "*15.tar.gz" ! -name "*22.tar.gz" \
-              -delete 2>/dev/null
-            
-            # Delete backups older than 30 days
-            find "$BACKUP_DIR" -name "nifi-backup-*.tar.gz" -mtime +30 -delete 2>/dev/null
-            
-            echo ""
-            echo "Backup retention:"
-            ls -lht "$BACKUP_DIR"/*.tar.gz 2>/dev/null | head -5
 
-        - name: recover-from-backup.sh
-          content: |
-            #!/bin/bash
-            BACKUP_DIR="/home/{{ nifi_user }}/backups/{{ environment_name }}"
-            NIFI_HOME="{{ nifi_home }}"
-            
-            echo "========================================"
-            echo "  NiFi Backup Recovery"
-            echo "========================================"
-            echo ""
-            
-            if [ ! -d "$BACKUP_DIR" ] || [ -z "$(ls -A "$BACKUP_DIR"/*.tar.gz 2>/dev/null)" ]; then
-              echo "No backups found in $BACKUP_DIR"
-              exit 1
-            fi
-            
-            echo "Available backups:"
-            ls -lht "$BACKUP_DIR"/*.tar.gz | nl
-            echo ""
-            
-            read -p "Enter backup filename to restore: " BACKUP_FILE
-            
-            if [ ! -f "$BACKUP_DIR/$BACKUP_FILE" ]; then
-              echo "Backup not found: $BACKUP_DIR/$BACKUP_FILE"
-              exit 1
-            fi
-            
-            echo ""
-            echo "WARNING: This will replace current NiFi data!"
-            read -p "Continue? (yes/NO): " CONFIRM
-            
-            if [ "$CONFIRM" != "yes" ]; then
-              echo "Recovery cancelled"
-              exit 0
-            fi
-            
-            echo ""
-            echo "Stopping NiFi containers..."
-            cd "$NIFI_HOME"
-            docker compose -f compose.{{ environment_name }}.yml down
-            
-            echo "Creating pre-recovery backup..."
-            RECOVERY_BACKUP="$BACKUP_DIR/pre-recovery-$(date +%Y%m%d_%H%M%S).tar.gz"
-            tar -czf "$RECOVERY_BACKUP" -C "$NIFI_HOME" flows/ registry_data/ 2>/dev/null || true
-            
-            echo "Restoring backup: $BACKUP_FILE"
-            tar -xzf "$BACKUP_DIR/$BACKUP_FILE" -C "$NIFI_HOME"
-            
-            if [ $? -eq 0 ]; then
-              echo "✓ Backup restored successfully"
-              echo ""
-              echo "Starting NiFi containers..."
-              docker compose -f compose.{{ environment_name }}.yml up -d
-              echo ""
-              echo "Recovery complete!"
-              echo "Monitor logs: docker compose -f compose.{{ environment_name }}.yml logs -f"
-            else
-              echo "✗ Recovery failed"
-              exit 1
-            fi
+    - name: Create setup instructions
+      copy:
+        dest: "/home/{{ nifi_user }}/SETUP_INSTRUCTIONS.md"
+        owner: "{{ nifi_user }}"
+        group: "{{ nifi_user }}"
+        mode: '0644'
+        content: |
+          # NiFi VM CI/CD Setup - AUTOMATED
+          
+          ## Setup Complete!
+          
+          Your VM is configured with GitHub PAT, GitHub CLI, Git repository (sparse checkout), post-commit hook, and helper scripts.
+          
+          **Environment**: {{ environment_name }}
+          **Compose File**: `compose.{{ environment_name }}.yml`
+          
+          ## Git Hook - Automatic Workflow Trigger
+          
+          The post-commit hook is installed at `~/nificicd-g1p2/.git/hooks/post-commit` and will automatically trigger the GitHub workflow when you commit changes to `flows/` or `registry_data/`.
+          
+          **How it works:**
+          1. You make changes in NiFi
+          2. NiFi Registry commits to local git
+          3. Post-commit hook detects changes
+          4. Hook triggers GitHub Actions workflow
+          5. Workflow syncs changes to GitHub
+          6. Automatic deployment to environments
+          
+          **Test it:**
+          ```bash
+          cd ~/nificicd-g1p2
+          echo "test" >> flows/test.txt
+          git add flows/ && git commit -m "test: hook verification"
+          # You should see: "Workflow triggered successfully!"
+          ```
+          
+          **Troubleshooting:**
+          - If hook doesn't trigger: `~/install-git-hook.sh`
+          - Test hook: `~/test-git-hook.sh`
+          - Manual trigger: `nifi_trigger_workflow "Manual test"`
+          
+          ## Verification
+          
+          ```bash
+          # Check configuration
+          nifi_check_config
+          
+          # Run full verification
+          ~/verify-setup.sh
+          
+          # Test the git hook
+          ~/test-git-hook.sh
+          ```
+          
+          ## Deploy NiFi
+          
+          **Important**: Only deploy after the provision workflow has updated the `.env.{{ environment_name }}` file with real values!
+          
+          ```bash
+          cd ~/nificicd-g1p2
+          
+          # Verify configuration first
+          docker compose -f compose.{{ environment_name }}.yml --env-file .env.{{ environment_name }} config --quiet
+          
+          # Deploy
+          docker compose -f compose.{{ environment_name }}.yml --env-file .env.{{ environment_name }} up -d
+          
+          # Monitor
+          docker compose -f compose.{{ environment_name }}.yml logs -f
+          ```
+          
+          ## Manual Workflow Triggers
+          
+          ```bash
+          # Using curl (via trigger-workflow.sh)
+          nifi_trigger_workflow "Manual trigger message"
+          
+          # Using gh CLI
+          nifi_gh_trigger_workflow "Manual trigger message"
+          ```
+          
+          ## GitHub CLI Commands
+          
+          ```bash
+          # View recent workflow runs
+          gh run list --repo {{ github_repo }}
+          
+          # Watch a workflow run in real-time
+          gh run watch --repo {{ github_repo }}
+          
+          # View workflow details
+          gh workflow view webhook-trigger.yml --repo {{ github_repo }}
+          
+          # Check authentication
+          gh auth status
+          ```
+          
+          ## Useful Commands
+          
+          - `nifi_check_config` - Check configuration status
+          - `nifi_trigger_workflow [msg]` - Trigger workflow (curl)
+          - `nifi_gh_trigger_workflow [msg]` - Trigger workflow (gh CLI)
+          - `~/verify-setup.sh` - Run setup verification
+          - `~/test-git-hook.sh` - Test git hook functionality
+          - `~/install-git-hook.sh` - Reinstall git hook
+          - `gh run list` - View
 
-        - name: maintenance-report.sh
-          content: |
-            #!/bin/bash
-            NIFI_HOME="{{ nifi_home }}"
-            BACKUP_DIR="/home/{{ nifi_user }}/backups/{{ environment_name }}"
-            
-            cat <<EOF
-            ================================================
-            NiFi CI/CD Maintenance Report
-            ================================================
-            Generated: $(date)
-            Environment: {{ environment_name }}
-            Hostname: $(hostname)
-            
-            SYSTEM RESOURCES
-            ================================================
-            Disk Usage (NiFi Home): $(df -h "$NIFI_HOME" | awk 'NR==2 {print $5 " used of " $2}')
-            Memory Usage: $(free -h | awk 'NR==2 {print $3 " / " $2}')
-            CPU Load: $(uptime | awk -F'load average:' '{print $2}')
-            
-            DOCKER STATUS
-            ================================================
-            Images: $(docker images | wc -l) total
-            Running Containers: $(docker ps --filter name=nifi | wc -l)
-            Container Status:
-            $(docker ps --filter name=nifi --format "  - {{.Names}}: {{.Status}}")
-            
-            GIT STATUS
-            ================================================
-            Branch: $(cd "$NIFI_HOME" && git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "N/A")
-            Last 5 Commits:
-            $(cd "$NIFI_HOME" && git log --oneline -5 2>/dev/null | sed 's/^/  /')
-            
-            BACKUP STATUS
-            ================================================
-            Backup Directory: $BACKUP_DIR
-            Total Backups: $(ls "$BACKUP_DIR"/*.tar.gz 2>/dev/null | wc -l)
-            Latest Backup: $(ls -t "$BACKUP_DIR"/*.tar.gz 2>/dev/null | head -1 | xargs basename)
-            Backup Size: $(du -sh "$BACKUP_DIR" 2>/dev/null | cut -f1)
-            
-            SECURITY STATUS
-            ================================================
-            GitHub PAT: $([ -n "$GITHUB_PAT" ] && echo "✓ Configured" || echo "✗ Missing")
-            Git Hook: $([ -x "$NIFI_HOME/.git/hooks/post-commit" ] && echo "✓ Active" || echo "✗ Inactive")
-            Git Identity: $(git config --global user.name 2>/dev/null || echo "Not configured")
-            
-            RECOMMENDATIONS
-            ================================================
-            - Review and rotate GitHub PAT every 90 days
-            - Verify backup integrity monthly
-            - Update Docker images quarterly
-            - Monitor disk usage weekly
-            - Review git commits for proper attribution
-            
-            EOF
+    # =======================
+    # SYSTEM LIMITS FOR NIFI
+    # =======================
+    - name: Configure system limits for NiFi
+      pam_limits:
+        domain: "{{ nifi_user }}"
+        limit_type: "{{ item.type }}"
+        limit_item: "{{ item.item }}"
+        value: "{{ item.value }}"
+      loop:
+        - { type: 'soft', item: 'nofile', value: '65536' }
+        - { type: 'hard', item: 'nofile', value: '65536' }
+        - { type: 'soft', item: 'nproc', value: '10000' }
+        - { type: 'hard', item: 'nproc', value: '10000' }
 
-        - name: integration-test.sh
-          content: |
-            #!/bin/bash
-            NIFI_HOME="{{ nifi_home }}"
-            ERRORS=0
-            
-            echo "========================================"
-            echo "  NiFi CI/CD Integration Tests"
-            echo "========================================"
-            echo ""
-            
-            # Test 1: Docker accessibility
-            echo -n "Test 1: Docker accessible... "
-            if docker ps >/dev/null 2>&1; then
-              echo "✓ PASS"
-            else
-              echo "✗ FAIL"
-              ERRORS=$((ERRORS + 1))
-            fi
-            
-            # Test 2: Git hook installed
-            echo -n "Test 2: Git hook installed... "
-            if [ -x "$NIFI_HOME/.git/hooks/post-commit" ]; then
-              echo "✓ PASS"
-            else
-              echo "✗ FAIL"
-              ERRORS=$((ERRORS + 1))
-            fi
-            
-            # Test 3: Environment variables
-            echo -n "Test 3: Environment configured... "
-            source ~/.nifi_cicd_env 2>/dev/null
-            if [ -n "$GITHUB_REPO" ] && [ -n "$GITHUB_PAT" ]; then
-              echo "✓ PASS"
-            else
-              echo "✗ FAIL"
-              ERRORS=$((ERRORS + 1))
-            fi
-            
-            # Test 4: GitHub API connectivity
-            echo -n "Test 4: GitHub API accessible... "
-            if curl -s -H "Authorization: token $GITHUB_PAT" \
-              "https://api.github.com/rate_limit" | jq -e '.rate.remaining > 0' >/dev/null 2>&1; then
-              echo "✓ PASS"
-            else
-              echo "✗ FAIL"
-              ERRORS=$((ERRORS + 1))
-            fi
-            
-            # Test 5: NiFi ports available
-            echo -n "Test 5: NiFi port {{ nifi_https_port }} available... "
-            if ! netstat -tuln 2>/dev/null | grep -q ":{{ nifi_https_port }}"; then
-              echo "✓ PASS"
-            else
-              echo "⚠ WARNING (port in use)"
-            fi
-            
-            # Test 6: Git identity configured
-            echo -n "Test 6: Git identity configured... "
-            if [ -n "$(git config --global user.name)" ] && [ -n "$(git config --global user.email)" ]; then
-              echo "✓ PASS"
-            else
-              echo "⚠ WARNING (run ~/setup-my-identity.sh)"
-            fi
-            
-            # Test 7: Backup directory writable
-            echo -n "Test 7: Backup directory writable... "
-            if [ -w "/home/{{ nifi_user }}/backups/{{ environment_name }}" ]; then
-              echo "✓ PASS"
-            else
-              echo "✗ FAIL"
-              ERRORS=$((ERRORS + 1))
-            fi
-            
-            echo ""
-            if [ $ERRORS -eq 0 ]; then
-              echo "========================================="
-              echo "  All tests passed! ✓"
-              echo "========================================="
-              exit 0
-            else
-              echo "========================================="
-              echo "  $ERRORS test(s) failed"
-              echo "========================================="
-              exit 1
-            fi
+    # ==================
+    # AUTOMATED CLEANUP
+    # ==================
+    - name: Set up cron job for backup cleanup
+      cron:
+        name: "Cleanup old {{ environment_name }} backups"
+        minute: "0"
+        hour: "2"
+        job: "find /home/{{ nifi_user }}/backups/{{ environment_name }} -type d -mtime +30 -exec rm -rf {} + 2>/dev/null || true"
+        user: "{{ nifi_user }}"
+
+    # =============
+    # VERIFICATION
+    # =============
+    - name: Verify installations
+      command: "{{ item }} --version"
+      register: version_check
+      changed_when: false
+      failed_when: false
+      loop:
+        - git
+        - docker
+        - jq
+        - gh
+
+    - name: Run setup verification
+      become_user: "{{ nifi_user }}"
+      command: /home/{{ nifi_user }}/verify-setup.sh
+      register: verification_output
+      changed_when: false
+
+    # ==============
+    # FINAL MESSAGE
+    # ==============
+    - name: Display setup summary
+      debug:
+        msg:
+          - "=========================================="
+          - "  VM Configuration Complete"
+          - "=========================================="
+          - "Environment: {{ environment_name }}"
+          - "Repository: {{ github_repo }}"
+          - "Branch: {{ target_branch }}"
+          - "Compose File: compose.{{ environment_name }}.yml"
+          - "Env File: .env.{{ environment_name }} ({{ 'created with placeholders' if env_file_created.changed else 'already exists' }})"
+          - ""
+          - "Status: GitHub PAT: {{ 'Configured' if github_pat != '' else 'NOT SET' }}"
+          - ""
+          - "Sparse Checkout: Only {{ environment_name }} files synced"
+          - ""
+          - ".env file contains placeholders - will be updated by provision workflow"
+          - ""
+          - "Quick Start:"
+          - "  nifi_check_config"
+          - "  cat ~/nificicd-g1p2/.env.{{ environment_name }}  # Verify env file"
+          - "  cd ~/nificicd-g1p2"
+          - "  docker compose -f compose.{{ environment_name }}.yml --env-file .env.{{ environment_name }} up -d"
+          - ""
+          - "Monitor: https://github.com/{{ github_repo }}/actions"
+        
+  handlers:
+    - name: Restart Docker
+      systemd:
+        name: docker
+        state: restarted
+        daemon_reload: yes

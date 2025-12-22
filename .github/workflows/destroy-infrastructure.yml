@@ -422,6 +422,7 @@ jobs:
             echo "Secrets: Retained (not requested for cleanup)"
           fi
           echo ""
+          echo "======================================"
 
   final-summary:
     name: Destruction Summary
