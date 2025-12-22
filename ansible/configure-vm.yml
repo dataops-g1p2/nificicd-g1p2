@@ -242,16 +242,13 @@
     # ==================
     # GIT CONFIGURATION
     # ==================
-    - name: Configure Git global settings
+    # NOTE: Removed generic Git config - developers will set their own identity
+    - name: Configure Git init.defaultBranch only
       become_user: "{{ nifi_user }}"
       community.general.git_config:
-        name: "{{ item.name }}"
-        value: "{{ item.value }}"
+        name: "init.defaultBranch"
+        value: "main"
         scope: global
-      loop:
-        - { name: 'user.email', value: 'nificicd-g1p2@automation.local' }
-        - { name: 'user.name', value: 'NiFi CI/CD Automation' }
-        - { name: 'init.defaultBranch', value: 'main' }
 
     # ====================
     # DIRECTORY STRUCTURE
@@ -295,6 +292,19 @@
             [ -n "$GITHUB_PAT" ] && echo "  PAT: Set (${#GITHUB_PAT} characters)" || echo "  PAT: Not set"
             echo "  Environment: ${NIFI_ENV:-'Not set'}"
             echo ""
+            
+            # Check Git identity
+            GIT_NAME=$(git config --global user.name 2>/dev/null)
+            GIT_EMAIL=$(git config --global user.email 2>/dev/null)
+            
+            if [ -n "$GIT_NAME" ] && [ -n "$GIT_EMAIL" ]; then
+              echo "  Git Identity: $GIT_NAME <$GIT_EMAIL>"
+            else
+              echo "  Git Identity: NOT CONFIGURED"
+              echo ""
+              echo "  WARNING: Configure your identity to get credit for your work!"
+              echo "  Run: ~/setup-my-identity.sh"
+            fi
             
             if command -v gh &> /dev/null && gh auth status &>/dev/null; then
               echo "  GitHub CLI: Authenticated"
@@ -488,6 +498,70 @@
           failed_when: false
           changed_when: false
 
+    - name: Create developer identity setup script
+      copy:
+        dest: "/home/{{ nifi_user }}/setup-my-identity.sh"
+        mode: '0755'
+        owner: "{{ nifi_user }}"
+        group: "{{ nifi_user }}"
+        content: |
+          #!/bin/bash
+          echo "========================================"
+          echo "  Configure Your Git Identity"
+          echo "========================================"
+          echo ""
+          echo "This ensures YOUR commits are attributed to YOU,"
+          echo "not a generic automation user."
+          echo ""
+          
+          # Check if already configured
+          CURRENT_NAME=$(git config --global user.name 2>/dev/null)
+          CURRENT_EMAIL=$(git config --global user.email 2>/dev/null)
+          
+          if [ -n "$CURRENT_NAME" ] && [ -n "$CURRENT_EMAIL" ]; then
+            echo "Current identity:"
+            echo "  Name: $CURRENT_NAME"
+            echo "  Email: $CURRENT_EMAIL"
+            echo ""
+            read -p "Update this identity? (y/N): " UPDATE
+            if [[ ! "$UPDATE" =~ ^[Yy]$ ]]; then
+              echo "Keeping current identity"
+              exit 0
+            fi
+          fi
+          
+          echo "Enter your information:"
+          read -p "  Full name: " DEV_NAME
+          read -p "  Email (use your GitHub email): " DEV_EMAIL
+          
+          if [ -z "$DEV_NAME" ] || [ -z "$DEV_EMAIL" ]; then
+            echo ""
+            echo "ERROR: Name and email are required"
+            exit 1
+          fi
+          
+          # Configure Git
+          git config --global user.name "$DEV_NAME"
+          git config --global user.email "$DEV_EMAIL"
+          
+          echo ""
+          echo "========================================="
+          echo "  Git Identity Configured Successfully!"
+          echo "========================================="
+          echo ""
+          echo "  Name: $(git config --global user.name)"
+          echo "  Email: $(git config --global user.email)"
+          echo ""
+          echo "All your commits will now be attributed to YOU!"
+          echo ""
+          echo "Test it:"
+          echo "  cd ~/nificicd-g1p2"
+          echo "  echo 'test by $(git config --global user.name)' >> flows/test.txt"
+          echo "  git add flows/test.txt"
+          echo "  git commit -m 'test: verify my identity'"
+          echo "  git log -1 --format='%an <%ae>'"
+          echo ""
+
     - name: Create helper scripts
       copy:
         dest: "/home/{{ nifi_user }}/{{ item.name }}"
@@ -532,68 +606,36 @@
             echo "=========================================="
             echo ""
             
-            # Check if git repo exists
             if [ ! -d "$NIFI_HOME/.git" ]; then
               echo "Git repository not initialized at $NIFI_HOME"
               exit 1
             fi
             
-            # Check if source hook exists
             if [ ! -f "$SOURCE_HOOK" ]; then
               echo "Source hook not found: $SOURCE_HOOK"
-              echo ""
-              echo "Looking for it in nificicd-g1p2 directory..."
               if [ -f "$NIFI_HOME/post-commit-hook.sh" ]; then
-                echo "Found it! Copying to home directory..."
                 cp "$NIFI_HOME/post-commit-hook.sh" "$SOURCE_HOOK"
                 chmod +x "$SOURCE_HOOK"
-                echo "Copied to: $SOURCE_HOOK"
               else
                 echo "Cannot find post-commit-hook.sh"
                 exit 1
               fi
-            else
-              echo "Source hook found: $SOURCE_HOOK"
             fi
             
-            echo ""
             mkdir -p "$HOOK_DIR"
             
-            # Backup existing hook if present
             if [ -f "$HOOK_FILE" ]; then
               BACKUP="$HOOK_FILE.backup.$(date +%Y%m%d_%H%M%S)"
               cp "$HOOK_FILE" "$BACKUP"
               echo "Backed up existing hook: $BACKUP"
             fi
             
-            # Install the hook
             cp "$SOURCE_HOOK" "$HOOK_FILE"
             chmod +x "$HOOK_FILE"
             
-            # Verify installation
             if [ -f "$HOOK_FILE" ] && [ -x "$HOOK_FILE" ]; then
               echo "Git hook installed and executable!"
-              echo ""
               echo "Location: $HOOK_FILE"
-              echo ""
-              
-              # Test if hook can access environment
-              echo "Testing environment access..."
-              cd "$NIFI_HOME"
-              if .git/hooks/post-commit 2>&1 | head -1 | grep -qE "(GITHUB_REPO|Missing required)"; then
-                echo "Hook can access environment variables"
-              else
-                echo "Hook may have issues accessing environment"
-                echo "   Make sure to source ~/.nifi_cicd_env in your shell"
-              fi
-              
-              echo ""
-              echo "Test it with:"
-              echo "  cd $NIFI_HOME"
-              echo "  echo 'test' >> flows/test.txt"
-              echo "  git add flows/ && git commit -m 'test: hook verification'"
-              echo ""
-              echo "Or run: ~/test-git-hook.sh"
             else
               echo "Hook installation failed"
               exit 1
@@ -602,7 +644,6 @@
         - name: test-git-hook.sh
           content: |
             #!/bin/bash
-            # Test Git Hook Functionality
             set -e
             
             NIFI_HOME="{{ nifi_home }}"
@@ -613,18 +654,14 @@
             echo "============================"
             echo ""
             
-            # Check if hook exists
             if [ ! -f "$HOOK_FILE" ]; then
               echo "Hook not found: $HOOK_FILE"
-              echo ""
               echo "Install it with: ~/install-git-hook.sh"
               exit 1
             fi
             
-            # Check if hook is executable
             if [ ! -x "$HOOK_FILE" ]; then
               echo "Hook is not executable: $HOOK_FILE"
-              echo ""
               echo "Fix with: chmod +x $HOOK_FILE"
               exit 1
             fi
@@ -632,7 +669,6 @@
             echo "Hook exists and is executable"
             echo ""
             
-            # Check configuration
             source ~/.nifi_cicd_env 2>/dev/null || true
             
             if [ -z "$GITHUB_PAT" ] || [ -z "$GITHUB_REPO" ]; then
@@ -649,8 +685,7 @@
             echo "  Environment: ${NIFI_ENV:-development}"
             echo ""
             
-            # Test hook with a real commit
-            echo "Creating test commit in flows/ directory..."
+            echo "Creating test commit..."
             cd "$NIFI_HOME"
             
             TEST_FILE="flows/.hook-test-$(date +%s).txt"
@@ -658,8 +693,7 @@
             git add "$TEST_FILE"
             
             echo ""
-            echo "Committing test file (this should trigger the hook)..."
-            echo "Watch for webhook trigger message below:"
+            echo "Committing (hook should trigger):"
             echo "----------------------------------------"
             
             git commit -m "test: automated hook verification" 2>&1 | tee /tmp/hook-test.log
@@ -667,29 +701,13 @@
             echo "----------------------------------------"
             echo ""
             
-            # Check if workflow was triggered
             if grep -q "Workflow triggered successfully" /tmp/hook-test.log; then
               echo "SUCCESS! Hook executed and triggered workflow!"
-              echo ""
-              echo "Monitor progress: https://github.com/$GITHUB_REPO/actions"
-            elif grep -q "No flows or registry_data changes" /tmp/hook-test.log; then
-              echo "Hook executed but skipped (file pattern didn't match)"
-              echo ""
-              echo "The hook only triggers for changes in flows/ or registry_data/"
-              echo "Your test file was in flows/, so this shouldn't happen."
             else
-              echo "Hook may not have executed"
-              echo ""
-              echo "Debug:"
-              echo "  1. Check hook output: cat /tmp/hook-test.log"
-              echo "  2. Verify hook exists: ls -la $HOOK_FILE"
-              echo "  3. Test hook directly: $HOOK_FILE"
+              echo "Hook may not have executed correctly"
             fi
             
-            # Cleanup
             rm -f /tmp/hook-test.log
-            echo ""
-            echo "Test complete. Check GitHub Actions for workflow run."
 
         - name: verify-setup.sh
           content: |
@@ -705,7 +723,6 @@
             echo "Compose file: compose.{{ environment_name }}.yml"
             echo ""
             
-            # Check if git hook is installed
             HOOK_FILE="{{ nifi_home }}/.git/hooks/post-commit"
             if [ -f "$HOOK_FILE" ] && [ -x "$HOOK_FILE" ]; then
               echo "Git hook: Installed and executable"
@@ -716,13 +733,9 @@
             echo ""
             
             echo "Quick Tests:"
-            echo "  1. Test hook: ~/test-git-hook.sh"
-            echo "  2. Manual trigger: nifi_trigger_workflow 'Test message'"
-            echo "  3. Real commit:"
-            echo "     cd ~/nificicd-g1p2"
-            echo "     echo 'test' >> flows/test.txt"
-            echo "     git add flows/ && git commit -m 'test: hook verification'"
-
+            echo "  1. Configure identity: ~/setup-my-identity.sh"
+            echo "  2. Test hook: ~/test-git-hook.sh"
+            echo "  3. Manual trigger: nifi_trigger_workflow 'Test message'"
 
     - name: Create setup instructions
       copy:
@@ -733,42 +746,31 @@
         content: |
           # NiFi VM CI/CD Setup - AUTOMATED
           
+          ## ⚠️ IMPORTANT FIRST STEP ⚠️
+          
+          **Configure your Git identity so YOUR commits are attributed to YOU!**
+          
+          ```bash
+          ~/setup-my-identity.sh
+          ```
+          
+          This is **REQUIRED** so your PRs show your name, not "NiFi CI/CD Automation".
+          
+          Use your GitHub email address for proper attribution!
+          
+          ---
+          
           ## Setup Complete!
           
-          Your VM is configured with GitHub PAT, GitHub CLI, Git repository (sparse checkout), post-commit hook, and helper scripts.
+          Your VM is configured with GitHub PAT, GitHub CLI, Git repository, post-commit hook, and helper scripts.
           
           **Environment**: {{ environment_name }}
           **Compose File**: `compose.{{ environment_name }}.yml`
           
-          ## Git Hook - Automatic Workflow Trigger
-          
-          The post-commit hook is installed at `~/nificicd-g1p2/.git/hooks/post-commit` and will automatically trigger the GitHub workflow when you commit changes to `flows/` or `registry_data/`.
-          
-          **How it works:**
-          1. You make changes in NiFi
-          2. NiFi Registry commits to local git
-          3. Post-commit hook detects changes
-          4. Hook triggers GitHub Actions workflow
-          5. Workflow syncs changes to GitHub
-          6. Automatic deployment to environments
-          
-          **Test it:**
-          ```bash
-          cd ~/nificicd-g1p2
-          echo "test" >> flows/test.txt
-          git add flows/ && git commit -m "test: hook verification"
-          # You should see: "Workflow triggered successfully!"
-          ```
-          
-          **Troubleshooting:**
-          - If hook doesn't trigger: `~/install-git-hook.sh`
-          - Test hook: `~/test-git-hook.sh`
-          - Manual trigger: `nifi_trigger_workflow "Manual test"`
-          
           ## Verification
           
           ```bash
-          # Check configuration
+          # Check configuration and Git identity
           nifi_check_config
           
           # Run full verification
@@ -780,56 +782,36 @@
           
           ## Deploy NiFi
           
-          **Important**: Only deploy after the provision workflow has updated the `.env.{{ environment_name }}` file with real values!
-          
           ```bash
           cd ~/nificicd-g1p2
-          
-          # Verify configuration first
-          docker compose -f compose.{{ environment_name }}.yml --env-file .env.{{ environment_name }} config --quiet
-          
-          # Deploy
           docker compose -f compose.{{ environment_name }}.yml --env-file .env.{{ environment_name }} up -d
-          
-          # Monitor
           docker compose -f compose.{{ environment_name }}.yml logs -f
           ```
+          
+          ## Making Changes
+          
+          1. **Configure your identity** (if not done): `~/setup-my-identity.sh`
+          2. Make changes in NiFi UI
+          3. NiFi Registry commits to local git automatically
+          4. Post-commit hook triggers GitHub Actions
+          5. GitHub creates PR with YOUR name
+          6. Team reviews and merges
+          7. Automatic deployment
           
           ## Manual Workflow Triggers
           
           ```bash
-          # Using curl (via trigger-workflow.sh)
-          nifi_trigger_workflow "Manual trigger message"
-          
-          # Using gh CLI
-          nifi_gh_trigger_workflow "Manual trigger message"
-          ```
-          
-          ## GitHub CLI Commands
-          
-          ```bash
-          # View recent workflow runs
-          gh run list --repo {{ github_repo }}
-          
-          # Watch a workflow run in real-time
-          gh run watch --repo {{ github_repo }}
-          
-          # View workflow details
-          gh workflow view webhook-trigger.yml --repo {{ github_repo }}
-          
-          # Check authentication
-          gh auth status
+          nifi_trigger_workflow "Your message"
+          nifi_gh_trigger_workflow "Your message"
           ```
           
           ## Useful Commands
           
+          - `~/setup-my-identity.sh` - **Configure your Git identity (REQUIRED)**
           - `nifi_check_config` - Check configuration status
-          - `nifi_trigger_workflow [msg]` - Trigger workflow (curl)
-          - `nifi_gh_trigger_workflow [msg]` - Trigger workflow (gh CLI)
           - `~/verify-setup.sh` - Run setup verification
           - `~/test-git-hook.sh` - Test git hook functionality
-          - `~/install-git-hook.sh` - Reinstall git hook
-          - `gh run list` - View
+          - `gh run list` - View workflow runs
 
     # =======================
     # SYSTEM LIMITS FOR NIFI
@@ -887,22 +869,16 @@
           - "  VM Configuration Complete"
           - "=========================================="
           - "Environment: {{ environment_name }}"
-          - "Repository: {{ github_repo }}"
-          - "Branch: {{ target_branch }}"
-          - "Compose File: compose.{{ environment_name }}.yml"
-          - "Env File: .env.{{ environment_name }} ({{ 'created with placeholders' if env_file_created.changed else 'already exists' }})"
           - ""
-          - "Status: GitHub PAT: {{ 'Configured' if github_pat != '' else 'NOT SET' }}"
-          - ""
-          - "Sparse Checkout: Only {{ environment_name }} files synced"
-          - ""
-          - ".env file contains placeholders - will be updated by provision workflow"
+          - "⚠️  IMPORTANT NEXT STEP:"
+          - "  Each developer must configure their Git identity!"
+          - "  SSH to VM and run: ~/setup-my-identity.sh"
           - ""
           - "Quick Start:"
-          - "  nifi_check_config"
-          - "  cat ~/nificicd-g1p2/.env.{{ environment_name }}  # Verify env file"
-          - "  cd ~/nificicd-g1p2"
-          - "  docker compose -f compose.{{ environment_name }}.yml --env-file .env.{{ environment_name }} up -d"
+          - "  1. ~/setup-my-identity.sh  (REQUIRED)"
+          - "  2. nifi_check_config"
+          - "  3. cd ~/nificicd-g1p2"
+          - "  4. docker compose -f compose.{{ environment_name }}.yml up -d"
           - ""
           - "Monitor: https://github.com/{{ github_repo }}/actions"
           - "=========================================="

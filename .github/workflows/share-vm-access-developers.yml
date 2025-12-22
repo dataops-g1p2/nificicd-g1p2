@@ -1,6 +1,7 @@
 name: Share VM Access with Developers
 
 on:
+
   workflow_dispatch:
     inputs:
       environments:
@@ -14,12 +15,14 @@ permissions:
   actions: read
 
 jobs:
+  
   parse-environments:
     name: Parse Environments
     runs-on: ubuntu-22.04
     outputs:
       environments: ${{ steps.parse.outputs.environments }}
     steps:
+
       - name: Parse Environment Input
         id: parse
         run: |
@@ -57,6 +60,7 @@ jobs:
       fail-fast: false
     environment: ${{ matrix.environment }}
     steps:
+
       - name: Get VM Configuration
         id: config
         run: |
@@ -127,7 +131,7 @@ jobs:
           echo "${{ secrets.SSH_PRIVATE_KEY }}" > "${ENV}-access/${ENV}-key.pem"
           chmod 600 "${ENV}-access/${ENV}-key.pem"
           
-          # Create README
+          # Create README with identity setup instructions
           cat > "${ENV}-access/README.txt" <<EOF
           ===============================================================================
                               NiFi VM Access - ${ENV} Environment
@@ -137,6 +141,24 @@ jobs:
             IP Address: ${VM_IP}
             Username: ${USERNAME}
             SSH Key: ${ENV}-key.pem
+
+          ⚠️⚠️⚠️  CRITICAL FIRST STEP  ⚠️⚠️⚠️
+          
+          After connecting to the VM for the FIRST TIME, you MUST run:
+          
+              ~/setup-my-identity.sh
+          
+          This configures YOUR Git identity so:
+            ✓ Your commits show YOUR name (not "NiFi CI/CD Automation")
+            ✓ PRs are attributed to YOU (not the admin)
+            ✓ You get credit for your work
+            ✓ Team knows who made which changes
+          
+          Use your GitHub email address for proper attribution!
+          
+          This is REQUIRED before making any commits!
+          
+          ===============================================================================
 
           PLATFORM-SPECIFIC INSTRUCTIONS:
             * Windows: Use connect.bat or PowerShell script
@@ -201,8 +223,48 @@ jobs:
 
           ===============================================================================
 
-          VERIFY SETUP (once connected):
-            nifi_check_config
+          FIRST TIME SETUP (AFTER CONNECTING):
+            
+            ⚠️  STEP 1 - CONFIGURE YOUR IDENTITY (REQUIRED):
+              ~/setup-my-identity.sh
+            
+            This script will ask for:
+              - Your full name (e.g., "John Doe")
+              - Your email (USE YOUR GITHUB EMAIL!)
+            
+            Example:
+              Enter your full name: John Doe
+              Enter your GitHub email: john.doe@company.com
+            
+            Why this matters:
+              - Without this, all commits show as "NiFi CI/CD Automation"
+              - PRs will be attributed to the admin, not you
+              - Your contributions won't be tracked properly
+            
+            STEP 2 - VERIFY SETUP:
+              nifi_check_config
+            
+            This shows:
+              - Your Git identity
+              - GitHub PAT configuration
+              - Git hook status
+              - Environment variables
+
+          TEST YOUR SETUP:
+            
+            Make a test commit:
+              cd ~/nificicd-g1p2
+              echo "test by \$(git config user.name)" >> flows/test.txt
+              git add flows/test.txt
+              git commit -m "test: verify my identity"
+            
+            Check the author:
+              git log -1 --format="%an <%ae>"
+            
+            This should show YOUR name and email!
+            
+            The post-commit hook will automatically trigger and create a PR
+            with YOUR name on it.
 
           NIFI SERVICES:
             NiFi UI: ${NIFI_URL:-https://${VM_IP}:8443/nifi}
@@ -211,8 +273,14 @@ jobs:
             
             Registry: ${REGISTRY_URL:-http://${VM_IP}:18080/nifi-registry}
 
-          TEST WORKFLOW:
-            nifi_trigger_workflow "test from VM"
+          WORKFLOW:
+            1. Configure identity: ~/setup-my-identity.sh (REQUIRED)
+            2. Make changes in NiFi UI
+            3. NiFi Registry commits automatically
+            4. Post-commit hook triggers GitHub Actions
+            5. PR is created with YOUR name
+            6. Team reviews and merges
+            7. Automatic deployment
 
           MONITOR DEPLOYMENTS:
             https://github.com/${{ github.repository }}/actions
@@ -253,6 +321,9 @@ jobs:
 
           echo "Connecting to ${USERNAME}@${VM_IP}..."
           echo ""
+          echo "⚠️  AFTER CONNECTING, RUN: ~/setup-my-identity.sh"
+          echo ""
+          
           ssh -i "$KEY" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "${USERNAME}@${VM_IP}"
           BASH
           
@@ -292,6 +363,8 @@ jobs:
           )
 
           echo Connecting to %USERNAME%@%VM_IP%...
+          echo.
+          echo WARNING: After connecting, run: ~/setup-my-identity.sh
           echo.
 
           ssh -i "%KEY%" -o StrictHostKeyChecking=no -o UserKnownHostsFile=NUL %USERNAME%@%VM_IP%
@@ -341,6 +414,8 @@ jobs:
 
           Write-Host "Connecting to ${USERNAME}@${VM_IP}..." -ForegroundColor Green
           Write-Host ""
+          Write-Host "WARNING: After connecting, run: ~/setup-my-identity.sh" -ForegroundColor Yellow
+          Write-Host ""
 
           try {
               ssh -i $KEY -o StrictHostKeyChecking=no -o UserKnownHostsFile=NUL "${USERNAME}@${VM_IP}"
@@ -367,10 +442,17 @@ jobs:
             Mac/Linux:  ./connect.sh
             Manual:  ssh -i ${ENV}-key.pem ${USERNAME}@${VM_IP}
 
+          ⚠️  FIRST TIME SETUP (REQUIRED):
+            ~/setup-my-identity.sh
+
           ON THE VM:
 
           Check Status:
             nifi_check_config
+
+          Check Your Identity:
+            git config --global user.name
+            git config --global user.email
 
           Navigate:
             cd ~/nificicd-g1p2
@@ -394,6 +476,7 @@ jobs:
             git add flows/
             git commit -m "your message"
             # Webhook triggers automatically
+            # PR will show YOUR name!
 
           NIFI UI:
             URL: ${NIFI_URL:-https://${VM_IP}:8443/nifi}
@@ -401,6 +484,22 @@ jobs:
             Pass: (ask team lead)
 
           TROUBLESHOOTING:
+
+          Identity Not Configured:
+            ~/setup-my-identity.sh
+            
+          Check Identity:
+            git config --global user.name
+            git config --global user.email
+
+          Identity Shows Wrong Name:
+            ~/setup-my-identity.sh
+            (Enter your correct information)
+
+          PR Shows Admin Name:
+            You didn't configure your identity before committing
+            Fix: ~/setup-my-identity.sh
+            Future commits will show your name
 
           Windows SSH not found:
             Settings -> Apps -> Optional Features -> Add OpenSSH Client
@@ -444,7 +543,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.environment }}-vm-access
-          # Point to the FOLDER, not a zip file
           path: ${{ matrix.environment }}-access/ 
           retention-days: 7
 
@@ -464,6 +562,11 @@ jobs:
           echo ""
           echo "VM: ${USERNAME}@${VM_IP}"
           echo "Key: ${ENV}-key.pem"
+          echo ""
+          echo "⚠️  CRITICAL: After connecting, run:"
+          echo "    ~/setup-my-identity.sh"
+          echo ""
+          echo "This ensures commits are attributed to YOU!"
           echo ""
           echo "Windows: Double-click connect.bat"
           echo "Mac/Linux: ./connect.sh"
@@ -485,11 +588,23 @@ jobs:
           echo "DOWNLOAD:"
           echo "  Actions -> This Run -> Artifacts"
           echo ""
+          echo "⚠️⚠️⚠️  CRITICAL INSTRUCTIONS  ⚠️⚠️⚠️"
+          echo ""
+          echo "Each developer MUST configure their Git identity"
+          echo "BEFORE making any commits!"
+          echo ""
           echo "USAGE:"
           echo "  1. Download and extract zip"
           echo "  2. Windows: Double-click connect.bat"
           echo "     Mac/Linux: Run ./connect.sh"
-          echo "  3. On VM: Run nifi_check_config"
+          echo "  3. ⚠️  REQUIRED: ~/setup-my-identity.sh"
+          echo "  4. Verify: nifi_check_config"
+          echo ""
+          echo "WHY THIS MATTERS:"
+          echo "  ✓ Your commits show YOUR name"
+          echo "  ✓ PRs are attributed to YOU (not admin)"
+          echo "  ✓ You get credit for your work"
+          echo "  ✓ Team knows who made changes"
           echo ""
           echo "SECURITY:"
           echo "  * Share via encrypted channels only"
