@@ -1,7 +1,7 @@
 name: Deploy to Staging
 
 on:
-
+  
   push:
     branches:
       - staging
@@ -59,23 +59,19 @@ jobs:
     permissions:
       contents: write
     steps:
-      
+
       - uses: actions/checkout@v5
         with:
           token: ${{ secrets.GH_TOKEN }}
           fetch-depth: 0
 
-      - name: Configure Git
+      - name: Merge to Production
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-
-      - name: Merge to Production
-        run: |
+          
           git fetch origin main:main 2>/dev/null || git checkout -b main
           git checkout main
-          
-          echo "Merging staging to production..."
           
           if git merge origin/staging --no-ff -X theirs -m "chore: promote staging to production
 
@@ -84,19 +80,19 @@ jobs:
           Triggered by: ${{ github.actor }}"; then
             echo "Merge successful"
           else
-            git diff --name-only --diff-filter=U | while read f; do
-              [ -n "$f" ] && git checkout --theirs "$f"
-            done
-            git add .
-            git commit -m "chore: promote (conflicts resolved)"
+            git diff --name-only --diff-filter=U | xargs -I {} git checkout --theirs {}
+            git add . && git commit -m "chore: promote (conflicts resolved)"
           fi
           
           git push origin main
           
-          echo ""
-          echo "╔════════════════════════════════════╗"
-          echo "║ PRODUCTION PROMOTION COMPLETE      ║"
-          echo "║                                    ║"
-          echo "║ Production deployment will trigger ║"
-          echo "║ automatically                      ║"
-          echo "╚════════════════════════════════════╝"
+          cat <<PROMOTION
+          
+          ╔════════════════════════════════════╗
+          ║ PRODUCTION PROMOTION COMPLETE      ║
+          ║                                    ║
+          ║ Production deployment will trigger ║
+          ║ automatically                      ║
+          ╚════════════════════════════════════╝
+          
+          PROMOTION

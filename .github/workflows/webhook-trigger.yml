@@ -1,7 +1,6 @@
 name: VM Registry Commit Trigger
 
 on:
-  
   repository_dispatch:
     types: [vm-registry-commit]
 
@@ -26,14 +25,12 @@ permissions:
   actions: read
 
 jobs:
-
   sync-from-vm:
     name: Sync Changes from VM
     runs-on: ubuntu-22.04
     timeout-minutes: 30
     environment: ${{ github.event.client_payload.environment || github.event.inputs.source_vm }}
     steps:
-
       - name: Checkout repository
         uses: actions/checkout@v5
         with:
@@ -44,25 +41,20 @@ jobs:
         id: config
         run: |
           ENV="${{ github.event.client_payload.environment || github.event.inputs.source_vm }}"
-
+          
+          # Set branch based on environment
           case $ENV in
-            development)
-              echo "branch=develop" >> $GITHUB_OUTPUT
-              echo "resource_group=rg-nificicd-g1p2-dev" >> $GITHUB_OUTPUT
-              echo "vm_name=vm-nifi-development" >> $GITHUB_OUTPUT
-              ;;
-            staging)
-              echo "branch=staging" >> $GITHUB_OUTPUT
-              echo "resource_group=rg-nificicd-g1p2-staging" >> $GITHUB_OUTPUT
-              echo "vm_name=vm-nifi-staging" >> $GITHUB_OUTPUT
-              ;;
-            production)
-              echo "branch=main" >> $GITHUB_OUTPUT
-              echo "resource_group=rg-nificicd-g1p2-prod" >> $GITHUB_OUTPUT
-              echo "vm_name=vm-nifi-production" >> $GITHUB_OUTPUT
-              ;;
+            development) BRANCH="develop" ;;
+            staging) BRANCH="staging" ;;
+            production) BRANCH="main" ;;
           esac
-
+          
+          # Set resource group and VM name
+          RG_SUFFIX="${ENV/development/dev}"
+          
+          echo "branch=$BRANCH" >> $GITHUB_OUTPUT
+          echo "resource_group=rg-nificicd-g1p2-$RG_SUFFIX" >> $GITHUB_OUTPUT
+          echo "vm_name=vm-nifi-$ENV" >> $GITHUB_OUTPUT
           echo "environment=$ENV" >> $GITHUB_OUTPUT
 
       - name: Setup SSH
@@ -82,8 +74,8 @@ jobs:
               "tenantId": "${{ secrets.ARM_TENANT_ID }}"
             }
 
-      - name: Get VM IP
-        id: vm_ip
+      - name: Get VM IP and Test Connection
+        id: vm_connect
         run: |
           VM_IP=$(az vm show \
             --resource-group ${{ steps.config.outputs.resource_group }} \
@@ -96,44 +88,35 @@ jobs:
             echo "ERROR: VM not found or not running"
             exit 1
           fi
-
-          echo "ip=$VM_IP" >> $GITHUB_OUTPUT
-          echo "✓ VM IP retrieved"
-
-      - name: Test SSH Connection (with Retry)
-        run: |
-          VM_IP="${{ steps.vm_ip.outputs.ip }}"
-          VM_USER="${{ secrets.VM_USERNAME }}"
           
+          echo "ip=$VM_IP" >> $GITHUB_OUTPUT
+          echo "VM IP retrieved: $VM_IP"
+          
+          # Setup and test SSH connection
+          VM_USER="${{ secrets.VM_USERNAME }}"
           ssh-keyscan -H $VM_IP >> ~/.ssh/known_hosts 2>/dev/null || true
           
           MAX_RETRIES=5
-          RETRY_COUNT=0
-          
-          while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+          for i in $(seq 1 $MAX_RETRIES); do
             if ssh -i ~/.ssh/deploy_key \
                    -o StrictHostKeyChecking=no \
                    -o UserKnownHostsFile=/dev/null \
                    -o ConnectTimeout=10 \
                    $VM_USER@$VM_IP "echo 'SSH connected'" 2>/dev/null; then
-              echo "✓ SSH connection successful"
+              echo "SSH connection successful"
               exit 0
             fi
             
-            RETRY_COUNT=$((RETRY_COUNT + 1))
-            if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
-              echo "Attempt $RETRY_COUNT/$MAX_RETRIES failed, waiting 10s..."
-              sleep 10
-            fi
+            [ $i -lt $MAX_RETRIES ] && echo "Attempt $i/$MAX_RETRIES failed, waiting 10s..." && sleep 10
           done
           
           echo "ERROR: SSH connection failed after $MAX_RETRIES attempts"
           exit 1
 
-      - name: Pull Changes from VM (with Retry)
+      - name: Pull Changes from VM
         id: pull_changes
         run: |
-          VM_IP="${{ steps.vm_ip.outputs.ip }}"
+          VM_IP="${{ steps.vm_connect.outputs.ip }}"
           VM_USER="${{ secrets.VM_USERNAME }}"
 
           sudo apt-get update -qq && sudo apt-get install -y rsync 2>/dev/null || true
@@ -141,60 +124,67 @@ jobs:
           echo "Pulling changes from VM..."
           
           MAX_RETRIES=3
-          RETRY_COUNT=0
-          
-          while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+          for i in $(seq 1 $MAX_RETRIES); do
             if rsync -avz --delete \
               -e "ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null" \
-              --include='flows/' \
-              --include='flows/**' \
-              --include='registry_data/' \
-              --include='registry_data/**' \
+              --include='flows/' --include='flows/**' \
+              --include='registry_data/' --include='registry_data/**' \
               --exclude='*' \
               $VM_USER@$VM_IP:~/nificicd-g1p2/ ./; then
               
-              echo "✓ Changes synced successfully"
+              echo "Changes synced successfully"
               echo "  Flows: $(find flows -type f 2>/dev/null | wc -l) files"
               echo "  Registry: $(find registry_data -type f 2>/dev/null | wc -l) files"
-              break
-            else
-              RETRY_COUNT=$((RETRY_COUNT + 1))
-              if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
-                echo "Retry $RETRY_COUNT/$MAX_RETRIES after 5 seconds..."
-                sleep 5
-              else
-                echo "ERROR: Failed to sync after $MAX_RETRIES attempts"
-                exit 1
-              fi
+              exit 0
             fi
+            
+            [ $i -lt $MAX_RETRIES ] && echo "Retry $i/$MAX_RETRIES after 5 seconds..." && sleep 5
           done
+          
+          echo "ERROR: Failed to sync after $MAX_RETRIES attempts"
+          exit 1
 
       - name: Configure Git
         run: |
           git config user.name "nifi-vm-sync[bot]"
           git config user.email "nifi-vm-sync[bot]@users.noreply.github.com"
 
-      - name: Determine Branch Strategy
+      - name: Determine Branch Strategy and Parse Author
         id: branch_strategy
         run: |
           SOURCE_BRANCH="${{ github.event.client_payload.branch || 'develop' }}"
           ENV="${{ steps.config.outputs.environment }}"
           IS_FEATURE_BRANCH="${{ github.event.client_payload.is_feature_branch || 'false' }}"
           
-          echo "source_branch=$SOURCE_BRANCH" >> $GITHUB_OUTPUT
-          
+          # Determine target branch
           if [ "$IS_FEATURE_BRANCH" = "true" ]; then
             TARGET_BRANCH="develop"
-            echo "✓ Feature branch detected: $SOURCE_BRANCH -> develop"
+            echo "Feature branch detected: $SOURCE_BRANCH -> develop"
           else
             TARGET_BRANCH="${{ steps.config.outputs.branch }}"
             echo "Environment branch: $SOURCE_BRANCH -> $TARGET_BRANCH"
           fi
           
+          # Parse author information
+          REAL_AUTHOR="${{ github.event.client_payload.commit_author }}"
+          
+          if [[ "$REAL_AUTHOR" =~ ^(.+)\ \<(.+)\>$ ]]; then
+            AUTHOR_NAME="${BASH_REMATCH[1]}"
+            AUTHOR_EMAIL="${BASH_REMATCH[2]}"
+          else
+            AUTHOR_NAME=$(git log -1 --format="%an" 2>/dev/null || echo "Developer")
+            AUTHOR_EMAIL=$(git log -1 --format="%ae" 2>/dev/null || echo "developer@unknown.local")
+            REAL_AUTHOR="$AUTHOR_NAME <$AUTHOR_EMAIL>"
+          fi
+          
+          echo "source_branch=$SOURCE_BRANCH" >> $GITHUB_OUTPUT
           echo "target_branch=$TARGET_BRANCH" >> $GITHUB_OUTPUT
           echo "is_feature_branch=$IS_FEATURE_BRANCH" >> $GITHUB_OUTPUT
+          echo "real_author=$REAL_AUTHOR" >> $GITHUB_OUTPUT
+          echo "author_name=$AUTHOR_NAME" >> $GITHUB_OUTPUT
+          echo "author_email=$AUTHOR_EMAIL" >> $GITHUB_OUTPUT
 
-      - name: Create PR Branch and Commit with Developer Attribution
+      - name: Create PR Branch and Commit
         id: commit_changes
         run: |
           SOURCE_BRANCH="${{ steps.branch_strategy.outputs.source_branch }}"
@@ -205,17 +195,15 @@ jobs:
           
           # Create PR branch name
           if [ "$IS_FEATURE_BRANCH" = "true" ]; then
-            FEATURE_NAME=$(echo "$SOURCE_BRANCH" | sed 's/feature\///' | sed 's/hotfix\///' | sed 's/bugfix\///' | sed 's/\//-/g')
+            FEATURE_NAME=$(echo "$SOURCE_BRANCH" | sed 's|.*/||; s|/|-|g')
             PR_BRANCH="vm-sync/${ENV}/${FEATURE_NAME}/${TIMESTAMP}"
           else
             PR_BRANCH="vm-sync/${ENV}/${TIMESTAMP}"
           fi
 
-          echo "Source branch: $SOURCE_BRANCH"
-          echo "Target branch: $TARGET_BRANCH"
-          echo "PR branch: $PR_BRANCH"
+          echo "Source: $SOURCE_BRANCH | Target: $TARGET_BRANCH | PR: $PR_BRANCH"
 
-          # Fetch and setup
+          # Setup branch
           git fetch origin
           git push origin --delete "$PR_BRANCH" 2>/dev/null || true
           git checkout -b "$PR_BRANCH" "origin/$TARGET_BRANCH"
@@ -229,214 +217,155 @@ jobs:
             exit 0
           fi
           
-          # Check for and resolve conflicts
+          # Auto-resolve conflicts (prefer VM version)
           if git diff --name-only --diff-filter=U | grep -q .; then
-            echo "⚠️  Conflicts detected. Attempting auto-resolution..."
-            git diff --name-only --diff-filter=U | while read file; do
-              git checkout --theirs "$file"
-              git add "$file"
-            done
-            echo "✓ Conflicts resolved (VM version preferred)"
+            echo "Conflicts detected. Auto-resolving (VM version preferred)..."
+            git diff --name-only --diff-filter=U | xargs -I {} git checkout --theirs {}
+            git add -u
+            echo "Conflicts resolved"
           fi
 
-          # Get REAL author from VM commit
-          REAL_AUTHOR="${{ github.event.client_payload.commit_author }}"
-          
-          # Parse name and email if format is "Name <email>"
-          if [[ "$REAL_AUTHOR" =~ ^(.+)\ \<(.+)\>$ ]]; then
-            AUTHOR_NAME="${BASH_REMATCH[1]}"
-            AUTHOR_EMAIL="${BASH_REMATCH[2]}"
-          else
-            # Fallback: try to get from git log
-            AUTHOR_NAME=$(git log -1 --format="%an" 2>/dev/null || echo "Developer")
-            AUTHOR_EMAIL=$(git log -1 --format="%ae" 2>/dev/null || echo "developer@unknown.local")
-            REAL_AUTHOR="$AUTHOR_NAME <$AUTHOR_EMAIL>"
-          fi
-          
+          # Get commit metadata
+          REAL_AUTHOR="${{ steps.branch_strategy.outputs.real_author }}"
           COMMIT_MSG="${{ github.event.client_payload.commit_message || github.event.inputs.commit_message || 'Sync from VM registry' }}"
           VM_COMMIT="${{ github.event.client_payload.commit_sha || 'N/A' }}"
           VM_HOSTNAME="${{ github.event.client_payload.vm_hostname || 'N/A' }}"
-
-          # Create commit with co-author for proper attribution
+          
+          # Build commit message
           if [ "$IS_FEATURE_BRANCH" = "true" ]; then
-            git commit -m "VM Sync [$SOURCE_BRANCH]: $COMMIT_MSG" -m "
-          Source Branch: $SOURCE_BRANCH
-          Target Branch: $TARGET_BRANCH
-          Environment: $ENV (${{ steps.config.outputs.vm_name }})
-          VM Commit: ${VM_COMMIT}
-          VM Hostname: ${VM_HOSTNAME}
-          Workflow Run: #${{ github.run_number }}
-          Triggered: $(date -u +%Y-%m-%dT%H:%M:%SZ)
-          
-          Co-authored-by: ${REAL_AUTHOR}"
+            TITLE="VM Sync [$SOURCE_BRANCH]: $COMMIT_MSG"
+            BODY="Source Branch: $SOURCE_BRANCH
+          Target Branch: $TARGET_BRANCH"
           else
-            git commit -m "VM Sync: $COMMIT_MSG" -m "
-          Source: $ENV environment (${{ steps.config.outputs.vm_name }})
+            TITLE="VM Sync: $COMMIT_MSG"
+            BODY="Source: $ENV environment (${{ steps.config.outputs.vm_name }})"
+          fi
+          
+          # Create commit with co-author
+          git commit -m "$TITLE" -m "$BODY
           VM Commit: ${VM_COMMIT}
           VM Hostname: ${VM_HOSTNAME}
           Workflow Run: #${{ github.run_number }}
           Triggered: $(date -u +%Y-%m-%dT%H:%M:%SZ)
-          
-          Co-authored-by: ${REAL_AUTHOR}"
-          fi
 
-          # Push PR branch
-          echo "Pushing to: $PR_BRANCH"
+          Co-authored-by: ${REAL_AUTHOR}"
+
           git push origin "$PR_BRANCH"
 
           echo "has_changes=true" >> $GITHUB_OUTPUT
           echo "pr_branch=$PR_BRANCH" >> $GITHUB_OUTPUT
-          echo "source_branch=$SOURCE_BRANCH" >> $GITHUB_OUTPUT
-          echo "target_branch=$TARGET_BRANCH" >> $GITHUB_OUTPUT
-          echo "real_author=$REAL_AUTHOR" >> $GITHUB_OUTPUT
-          echo "author_name=$AUTHOR_NAME" >> $GITHUB_OUTPUT
-          echo "author_email=$AUTHOR_EMAIL" >> $GITHUB_OUTPUT
-          echo "✓ Changes committed with developer attribution"
+          echo "Changes committed with developer attribution"
 
-      - name: Ensure PR Labels Exist
-        if: steps.commit_changes.outputs.has_changes == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GH_TOKEN }}
-        run: |
-          gh label create "vm-sync" --color "0E8A16" --description "Automated VM sync" --force 2>/dev/null || true
-          gh label create "automated" --color "FBCA04" --description "Automated workflow" --force 2>/dev/null || true
-          gh label create "development" --color "1D76DB" --description "Development environment" --force 2>/dev/null || true
-          gh label create "staging" --color "FB8500" --description "Staging environment" --force 2>/dev/null || true
-          gh label create "production" --color "D93F0B" --description "Production environment" --force 2>/dev/null || true
-          echo "✓ Labels verified/created"
-
-      - name: Create Pull Request with Developer Attribution
+      - name: Ensure PR Labels and Create Pull Request
         if: steps.commit_changes.outputs.has_changes == 'true'
         id: create_pr
         env:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
         run: |
-          SOURCE_BRANCH="${{ steps.commit_changes.outputs.source_branch }}"
-          TARGET_BRANCH="${{ steps.commit_changes.outputs.target_branch }}"
+          # Create labels if needed
+          for label in "vm-sync:0E8A16:Automated VM sync" "automated:FBCA04:Automated workflow" \
+                       "development:1D76DB:Development environment" "staging:FB8500:Staging environment" \
+                       "production:D93F0B:Production environment"; do
+            IFS=':' read -r name color desc <<< "$label"
+            gh label create "$name" --color "$color" --description "$desc" --force 2>/dev/null || true
+          done
+          echo "Labels verified"
+          
+          # Get variables
+          SOURCE_BRANCH="${{ steps.branch_strategy.outputs.source_branch }}"
+          TARGET_BRANCH="${{ steps.branch_strategy.outputs.target_branch }}"
           PR_BRANCH="${{ steps.commit_changes.outputs.pr_branch }}"
           IS_FEATURE_BRANCH="${{ steps.branch_strategy.outputs.is_feature_branch }}"
           ENV="${{ steps.config.outputs.environment }}"
-
           COMMIT_MSG="${{ github.event.client_payload.commit_message || github.event.inputs.commit_message || 'Sync from VM registry' }}"
           VM_COMMIT="${{ github.event.client_payload.commit_sha || 'N/A' }}"
-          REAL_AUTHOR="${{ steps.commit_changes.outputs.real_author }}"
-          AUTHOR_NAME="${{ steps.commit_changes.outputs.author_name }}"
-          AUTHOR_EMAIL="${{ steps.commit_changes.outputs.author_email }}"
+          REAL_AUTHOR="${{ steps.branch_strategy.outputs.real_author }}"
+          AUTHOR_NAME="${{ steps.branch_strategy.outputs.author_name }}"
+          AUTHOR_EMAIL="${{ steps.branch_strategy.outputs.author_email }}"
           VM_HOSTNAME="${{ github.event.client_payload.vm_hostname || 'N/A' }}"
           
-          # Try to find GitHub username from email
+          # Find GitHub username
           GITHUB_USER=""
           if [ "$AUTHOR_EMAIL" != "unknown" ] && [ "$AUTHOR_EMAIL" != "developer@unknown.local" ]; then
             GITHUB_USER=$(gh api search/users?q="${AUTHOR_EMAIL}+in:email" --jq '.items[0].login' 2>/dev/null || echo "")
           fi
 
-          # Build PR title with developer name
+          # Build PR title
           if [ -n "$GITHUB_USER" ]; then
             PR_TITLE="VM Sync [$ENV] by @$GITHUB_USER: $COMMIT_MSG"
           else
             PR_TITLE="VM Sync [$ENV] by $AUTHOR_NAME: $COMMIT_MSG"
           fi
 
-          # Build PR body with prominent developer attribution
-          if [ "$IS_FEATURE_BRANCH" = "true" ]; then
-            PR_BODY="## 👤 Developer: **$AUTHOR_NAME**
+          # Build PR body
+          cat > pr_body.md <<EOF
+          ## Developer: **$AUTHOR_NAME**
           $([ -n "$GITHUB_USER" ] && echo "**GitHub:** @$GITHUB_USER" || echo "**Email:** $AUTHOR_EMAIL")
 
-          ## Feature Branch VM Sync
+          ## $([ "$IS_FEATURE_BRANCH" = "true" ] && echo "Feature Branch VM Sync" || echo "VM Registry Sync")
 
-          **Source Branch:** \`$SOURCE_BRANCH\`  
-          **Target Branch:** \`$TARGET_BRANCH\`  
-          **Environment:** \`$ENV\`
+          $([ "$IS_FEATURE_BRANCH" = "true" ] && echo "**Source Branch:** \`$SOURCE_BRANCH\`")
+          **$([ "$IS_FEATURE_BRANCH" = "true" ] && echo "Target" || echo "Environment"):** \`$([ "$IS_FEATURE_BRANCH" = "true" ] && echo "$TARGET_BRANCH" || echo "$ENV")\`
 
-          ### 📝 Commit Details
+          ### Commit Details
           - **Author:** $REAL_AUTHOR
           - **VM Commit:** \`${VM_COMMIT}\`
           - **VM Hostname:** ${VM_HOSTNAME}
           - **Message:** $COMMIT_MSG
 
-          ### 📦 Changes
-          This PR contains NiFi flow and registry changes from the **$SOURCE_BRANCH** feature branch on the **$ENV** VM.
+          ### Changes
+          This PR contains NiFi flow and registry changes from the **$([ "$IS_FEATURE_BRANCH" = "true" ] && echo "$SOURCE_BRANCH feature branch on the " || echo "")$ENV** VM.
 
-          ### 🚀 After Merging
+          ### After Merging
           - Changes will be merged to \`$TARGET_BRANCH\`
           - Deployment workflow will trigger automatically
           - NiFi will be updated in $ENV environment
 
           ---
-          *Authored by: $AUTHOR_NAME | Automated sync - Workflow run [#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})*"
-          else
-            PR_BODY="## 👤 Developer: **$AUTHOR_NAME**
-          $([ -n "$GITHUB_USER" ] && echo "**GitHub:** @$GITHUB_USER" || echo "**Email:** $AUTHOR_EMAIL")
+          *Authored by: $AUTHOR_NAME | Automated sync - Workflow run [#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})*
+          EOF
 
-          ## VM Registry Sync
-
-          **Environment:** \`$ENV\`  
-          **Target Branch:** \`$TARGET_BRANCH\`
-
-          ### 📝 Commit Details
-          - **Author:** $REAL_AUTHOR
-          - **VM Commit:** \`${VM_COMMIT}\`
-          - **VM Hostname:** ${VM_HOSTNAME}
-          - **Message:** $COMMIT_MSG
-
-          ### 📦 Changes
-          This PR contains NiFi flow and registry changes synced from the **$ENV** VM.
-
-          ### 🚀 After Merging
-          - Changes will be merged to \`$TARGET_BRANCH\`
-          - Deployment workflow will trigger automatically
-          - NiFi will be updated in $ENV environment
-
-          ---
-          *Authored by: $AUTHOR_NAME | Automated sync - Workflow run [#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})*"
-          fi
-
-          # Check if PR already exists
+          # Check for existing PR
           EXISTING_PR=$(gh pr list --head "$PR_BRANCH" --base "$TARGET_BRANCH" --json number --jq '.[0].number' 2>/dev/null || echo "")
 
           if [ -n "$EXISTING_PR" ]; then
             echo "PR already exists: #$EXISTING_PR"
             PR_URL="https://github.com/${{ github.repository }}/pull/$EXISTING_PR"
-            echo "pr_number=$EXISTING_PR" >> $GITHUB_OUTPUT
-            echo "pr_url=$PR_URL" >> $GITHUB_OUTPUT
-            exit 0
-          fi
-
-          # Create PR
-          echo "Creating pull request with developer attribution..."
-          PR_URL=$(gh pr create \
-            --title "$PR_TITLE" \
-            --body "$PR_BODY" \
-            --base "$TARGET_BRANCH" \
-            --head "$PR_BRANCH" \
-            --label "vm-sync" \
-            --label "automated" \
-            --label "$ENV" 2>&1)
-
-          if [ $? -eq 0 ]; then
-            echo "✓ Pull Request created"
-            echo "$PR_URL"
-
-            PR_NUMBER=$(echo "$PR_URL" | grep -oP 'pull/\K[0-9]+' || gh pr list --head "$PR_BRANCH" --json number --jq '.[0].number')
-            
-            # If we found a GitHub user, request their review
-            if [ -n "$GITHUB_USER" ]; then
-              echo "Requesting review from @$GITHUB_USER..."
-              gh pr edit "$PR_NUMBER" --add-reviewer "$GITHUB_USER" 2>/dev/null || echo "Note: Could not add reviewer automatically"
-            fi
-            
-            echo "pr_number=$PR_NUMBER" >> $GITHUB_OUTPUT
-            echo "pr_url=$PR_URL" >> $GITHUB_OUTPUT
-            echo "github_user=$GITHUB_USER" >> $GITHUB_OUTPUT
+            PR_NUMBER="$EXISTING_PR"
           else
-            echo "ERROR: Failed to create PR"
-            echo "$PR_URL"
-            exit 1
-          fi
+            # Create PR
+            echo "Creating pull request with developer attribution..."
+            PR_URL=$(gh pr create \
+              --title "$PR_TITLE" \
+              --body-file pr_body.md \
+              --base "$TARGET_BRANCH" \
+              --head "$PR_BRANCH" \
+              --label "vm-sync" \
+              --label "automated" \
+              --label "$ENV")
 
-      - name: Generate Workflow Summary
+            if [ $? -eq 0 ]; then
+              echo "Pull Request created: $PR_URL"
+              PR_NUMBER=$(echo "$PR_URL" | grep -oP 'pull/\K[0-9]+' || gh pr list --head "$PR_BRANCH" --json number --jq '.[0].number')
+              
+              # Request review from developer if found
+              [ -n "$GITHUB_USER" ] && gh pr edit "$PR_NUMBER" --add-reviewer "$GITHUB_USER" 2>/dev/null && echo "Review requested from @$GITHUB_USER"
+            else
+              echo "ERROR: Failed to create PR"
+              exit 1
+            fi
+          fi
+          
+          echo "pr_number=$PR_NUMBER" >> $GITHUB_OUTPUT
+          echo "pr_url=$PR_URL" >> $GITHUB_OUTPUT
+          echo "github_user=$GITHUB_USER" >> $GITHUB_OUTPUT
+
+      - name: Generate Summary and Output
         if: always()
         run: |
+          HAS_CHANGES="${{ steps.commit_changes.outputs.has_changes }}"
+          
+          # Generate GitHub Step Summary
           cat > $GITHUB_STEP_SUMMARY <<EOF
           # VM Sync Summary
           
@@ -447,65 +376,55 @@ jobs:
           - **VM**: ${{ steps.config.outputs.vm_name }}
           
           ## Developer
-          - **Name**: ${{ steps.commit_changes.outputs.author_name || 'N/A' }}
-          - **Email**: ${{ steps.commit_changes.outputs.author_email || 'N/A' }}
+          - **Name**: ${{ steps.branch_strategy.outputs.author_name || 'N/A' }}
+          - **Email**: ${{ steps.branch_strategy.outputs.author_email || 'N/A' }}
           $([ -n "${{ steps.create_pr.outputs.github_user }}" ] && echo "- **GitHub**: @${{ steps.create_pr.outputs.github_user }}" || echo "")
           
           ## Results
-          - **Changes Detected**: ${{ steps.commit_changes.outputs.has_changes || 'false' }}
-          - **PR Created**: ${{ steps.create_pr.outputs.pr_url || 'No changes' }}
+          - **Changes Detected**: ${HAS_CHANGES:-false}
+          - **PR**: ${{ steps.create_pr.outputs.pr_url || 'No changes detected' }}
           
           ## Files Changed
           \`\`\`
           $(git diff --stat origin/${{ steps.branch_strategy.outputs.target_branch }} 2>/dev/null | head -20 || echo "No changes")
           \`\`\`
-          
           EOF
+          
+          # Console output
+          if [ "$HAS_CHANGES" = "true" ]; then
+            ENV="${{ steps.config.outputs.environment }}"
+            SOURCE_BRANCH="${{ steps.branch_strategy.outputs.source_branch }}"
+            TARGET_BRANCH="${{ steps.branch_strategy.outputs.target_branch }}"
+            IS_FEATURE_BRANCH="${{ steps.branch_strategy.outputs.is_feature_branch }}"
+            AUTHOR_NAME="${{ steps.branch_strategy.outputs.author_name }}"
+            PR_URL="${{ steps.create_pr.outputs.pr_url }}"
+
+            cat <<SUMMARY
+          
+          ╔═════════════════════════════════╗
+          ║  VM Sync Complete (PR Created)  ║
+          ╚═════════════════════════════════╝
+          
+          $([ "$IS_FEATURE_BRANCH" = "true" ] && echo "Feature Branch: $SOURCE_BRANCH")
+          Environment: $ENV
+          Target Branch: $TARGET_BRANCH
+          Developer: $AUTHOR_NAME
+          
+          Pull Request: $PR_URL
+          
+          Next Steps:
+            1. Review the PR (link above)
+            2. Merge the PR when ready
+            3. Deployment will trigger automatically
+          
+          SUMMARY
+          else
+            echo -e "\nNo changes detected - VM state matches Git state\n"
+          fi
 
       - name: Cleanup
         if: always()
         run: rm -f ~/.ssh/deploy_key
-
-      - name: Summary
-        if: steps.commit_changes.outputs.has_changes == 'true'
-        run: |
-          SOURCE_BRANCH="${{ steps.commit_changes.outputs.source_branch }}"
-          TARGET_BRANCH="${{ steps.commit_changes.outputs.target_branch }}"
-          IS_FEATURE_BRANCH="${{ steps.branch_strategy.outputs.is_feature_branch }}"
-          ENV="${{ steps.config.outputs.environment }}"
-          PR_URL="${{ steps.create_pr.outputs.pr_url }}"
-          AUTHOR_NAME="${{ steps.commit_changes.outputs.author_name }}"
-
-          echo ""
-          echo "╔════════════════════════════════════════╗"
-          echo "║  VM Sync Complete (PR Created)         ║"
-          echo "╚════════════════════════════════════════╝"
-          echo ""
-          
-          if [ "$IS_FEATURE_BRANCH" = "true" ]; then
-            echo "Feature Branch: $SOURCE_BRANCH"
-          fi
-          
-          echo "Environment: $ENV"
-          echo "Target Branch: $TARGET_BRANCH"
-          echo "Developer: $AUTHOR_NAME"
-          echo ""
-          echo "Pull Request:"
-          echo "   $PR_URL"
-          echo ""
-          echo "Next Steps:"
-          echo "   1. Review the PR (link above)"
-          echo "   2. Merge the PR when ready"
-          echo "   3. Deployment will trigger automatically"
-          echo ""
-
-      - name: Summary - No Changes
-        if: steps.commit_changes.outputs.has_changes == 'false'
-        run: |
-          echo ""
-          echo "No changes detected"
-          echo "The VM state matches the current Git state"
-          echo ""
       
       - name: Notify on Failure
         if: failure()

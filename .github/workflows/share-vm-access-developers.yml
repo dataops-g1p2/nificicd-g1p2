@@ -1,7 +1,6 @@
 name: Share VM Access with Developers
 
 on:
-
   workflow_dispatch:
     inputs:
       environments:
@@ -15,14 +14,12 @@ permissions:
   actions: read
 
 jobs:
-  
   parse-environments:
     name: Parse Environments
     runs-on: ubuntu-22.04
     outputs:
       environments: ${{ steps.parse.outputs.environments }}
     steps:
-
       - name: Parse Environment Input
         id: parse
         run: |
@@ -34,24 +31,16 @@ jobs:
           for env in "${ENV_ARRAY[@]}"; do
             case "$env" in
               development|staging|production)
-                if [[ ! " ${VALID_ENVS[@]} " =~ " ${env} " ]]; then
-                  VALID_ENVS+=("$env")
-                fi
+                [[ ! " ${VALID_ENVS[@]} " =~ " ${env} " ]] && VALID_ENVS+=("$env")
                 ;;
             esac
           done
           
-          JSON_ARRAY="["
-          for i in "${!VALID_ENVS[@]}"; do
-            [ $i -gt 0 ] && JSON_ARRAY+=","
-            JSON_ARRAY+="\"${VALID_ENVS[$i]}\""
-          done
-          JSON_ARRAY+="]"
-          
+          JSON_ARRAY=$(printf '%s\n' "${VALID_ENVS[@]}" | jq -R . | jq -s .)
           echo "environments=$JSON_ARRAY" >> $GITHUB_OUTPUT
 
   generate-access:
-    name: Generate Access Files
+    name: Generate Access - ${{ matrix.environment }}
     needs: parse-environments
     runs-on: ubuntu-22.04
     strategy:
@@ -60,25 +49,12 @@ jobs:
       fail-fast: false
     environment: ${{ matrix.environment }}
     steps:
-
-      - name: Get VM Configuration
+      - name: Set VM Configuration
         id: config
         run: |
           ENV="${{ matrix.environment }}"
-          case $ENV in
-            development)
-              echo "resource_group=rg-nificicd-g1p2-dev" >> $GITHUB_OUTPUT
-              echo "vm_name=vm-nifi-development" >> $GITHUB_OUTPUT
-              ;;
-            staging)
-              echo "resource_group=rg-nificicd-g1p2-staging" >> $GITHUB_OUTPUT
-              echo "vm_name=vm-nifi-staging" >> $GITHUB_OUTPUT
-              ;;
-            production)
-              echo "resource_group=rg-nificicd-g1p2-prod" >> $GITHUB_OUTPUT
-              echo "vm_name=vm-nifi-production" >> $GITHUB_OUTPUT
-              ;;
-          esac
+          echo "resource_group=rg-nificicd-g1p2-${ENV/development/dev}" >> $GITHUB_OUTPUT
+          echo "vm_name=vm-nifi-${ENV}" >> $GITHUB_OUTPUT
 
       - name: Azure Login
         uses: azure/login@v1
@@ -91,29 +67,21 @@ jobs:
               "tenantId": "${{ secrets.ARM_TENANT_ID }}"
             }
 
-      - name: Get VM IP
+      - name: Get VM Information
         id: vm_info
         run: |
           RG="${{ steps.config.outputs.resource_group }}"
           VM_NAME="${{ steps.config.outputs.vm_name }}"
           
-          if ! az group exists --name $RG | grep -q "true"; then
-            echo "exists=false" >> $GITHUB_OUTPUT
-            echo "WARNING: VM does not exist"
-            exit 0
-          fi
-          
           if ! az vm show --resource-group $RG --name $VM_NAME &>/dev/null; then
             echo "exists=false" >> $GITHUB_OUTPUT
-            echo "WARNING: VM does not exist"
+            echo "VM does not exist: $VM_NAME"
             exit 0
           fi
           
           VM_IP=$(az vm show -d --resource-group $RG --name $VM_NAME --query publicIps -o tsv)
-          
           echo "exists=true" >> $GITHUB_OUTPUT
           echo "ip=$VM_IP" >> $GITHUB_OUTPUT
-          echo "VM IP: $VM_IP"
 
       - name: Create Access Package
         if: steps.vm_info.outputs.exists == 'true'
@@ -131,328 +99,86 @@ jobs:
           echo "${{ secrets.SSH_PRIVATE_KEY }}" > "${ENV}-access/${ENV}-key.pem"
           chmod 600 "${ENV}-access/${ENV}-key.pem"
           
-          # Create README with identity setup instructions
+          # Create comprehensive README
           cat > "${ENV}-access/README.txt" <<EOF
           ===============================================================================
-                              NiFi VM Access - ${ENV} Environment
+                              NiFi VM Access - ${ENV^^} Environment
           ===============================================================================
 
           VM INFORMATION:
-            IP Address: ${VM_IP}
+            IP: ${VM_IP}
             Username: ${USERNAME}
             SSH Key: ${ENV}-key.pem
 
-          ⚠️⚠️⚠️  CRITICAL FIRST STEP  ⚠️⚠️⚠️
+          IMPORTANT FIRST STEP
           
-          After connecting to the VM for the FIRST TIME, you MUST run:
-          
+          After connecting, IMMEDIATELY run:
               ~/setup-my-identity.sh
           
-          This configures YOUR Git identity so:
-            ✓ Your commits show YOUR name (not "NiFi CI/CD Automation")
-            ✓ PRs are attributed to YOU (not the admin)
-            ✓ You get credit for your work
-            ✓ Team knows who made which changes
-          
-          Use your GitHub email address for proper attribution!
-          
-          This is REQUIRED before making any commits!
-          
-          ===============================================================================
-
-          PLATFORM-SPECIFIC INSTRUCTIONS:
-            * Windows: Use connect.bat or PowerShell script
-            * macOS/Linux: Use connect.sh
+          This configures YOUR Git identity so commits/PRs are attributed to YOU.
+          Use your GitHub email for proper attribution!
 
           ===============================================================================
-                                        WINDOWS USERS
+          CONNECTION METHODS
           ===============================================================================
 
-            Option 1 - Command Prompt (Easiest):
-              1. Double-click: connect.bat
-                OR
-              2. Open Command Prompt in this folder
-              3. Run: connect.bat
+          WINDOWS:
+            • Double-click: connect.bat (easiest)
+            • PowerShell: .\connect.ps1
+            • WSL: chmod 600 ${ENV}-key.pem && ./connect.sh
+            • PuTTY: Convert key with puttygen.exe, then use ${VM_IP}
 
-            Option 2 - PowerShell:
-              1. Right-click: connect.ps1 -> Run with PowerShell
-                OR
-              2. Open PowerShell in this folder
-              3. Run: .\connect.ps1
-
-            Option 3 - WSL (Windows Subsystem for Linux):
-              1. Open WSL terminal
-              2. Navigate to this folder
-              3. Run: chmod 600 ${ENV}-key.pem
-              4. Run: ./connect.sh
-
-            Option 4 - PuTTY:
-              1. Convert key: Use puttygen.exe to convert ${ENV}-key.pem to .ppk
-              2. Open PuTTY
-              3. Host: ${VM_IP}
-              4. Connection -> SSH -> Auth -> Browse to .ppk file
-              5. Click Open
+          macOS/LINUX:
+            • Run: ./connect.sh
+            • Manual: chmod 600 ${ENV}-key.pem && ssh -i ${ENV}-key.pem ${USERNAME}@${VM_IP}
 
           ===============================================================================
-                                        macOS USERS
+          FIRST TIME SETUP
           ===============================================================================
 
-            Option 1 - Terminal (Recommended):
-              1. Open Terminal
-              2. Navigate to this folder
-              3. Run: ./connect.sh
+          1. Configure Identity (REQUIRED):
+             ~/setup-my-identity.sh
+             
+             Enter your full name and GitHub email when prompted.
 
-            Option 2 - Manual Connection:
-              1. Open Terminal
-              2. Run: chmod 600 ${ENV}-key.pem
-              3. Run: ssh -i ${ENV}-key.pem ${USERNAME}@${VM_IP}
+          2. Verify Configuration:
+             nifi_check_config
 
-          ===============================================================================
-                                        LINUX USERS
-          ===============================================================================
-
-            Option 1 - Terminal (Recommended):
-              1. Open Terminal
-              2. Navigate to this folder
-              3. Run: ./connect.sh
-
-            Option 2 - Manual Connection:
-              1. Open Terminal
-              2. Run: chmod 600 ${ENV}-key.pem
-              3. Run: ssh -i ${ENV}-key.pem ${USERNAME}@${VM_IP}
+          3. Test Your Setup:
+             cd ~/nificicd-g1p2
+             echo "test by \$(git config user.name)" >> flows/test.txt
+             git add flows/test.txt && git commit -m "test: verify identity"
+             git log -1 --format="%an <%ae>"  # Should show YOUR name!
 
           ===============================================================================
+          NIFI SERVICES & WORKFLOW
+          ===============================================================================
 
-          FIRST TIME SETUP (AFTER CONNECTING):
-            
-            ⚠️  STEP 1 - CONFIGURE YOUR IDENTITY (REQUIRED):
-              ~/setup-my-identity.sh
-            
-            This script will ask for:
-              - Your full name (e.g., "John Doe")
-              - Your email (USE YOUR GITHUB EMAIL!)
-            
-            Example:
-              Enter your full name: John Doe
-              Enter your GitHub email: john.doe@company.com
-            
-            Why this matters:
-              - Without this, all commits show as "NiFi CI/CD Automation"
-              - PRs will be attributed to the admin, not you
-              - Your contributions won't be tracked properly
-            
-            STEP 2 - VERIFY SETUP:
-              nifi_check_config
-            
-            This shows:
-              - Your Git identity
-              - GitHub PAT configuration
-              - Git hook status
-              - Environment variables
-
-          TEST YOUR SETUP:
-            
-            Make a test commit:
-              cd ~/nificicd-g1p2
-              echo "test by \$(git config user.name)" >> flows/test.txt
-              git add flows/test.txt
-              git commit -m "test: verify my identity"
-            
-            Check the author:
-              git log -1 --format="%an <%ae>"
-            
-            This should show YOUR name and email!
-            
-            The post-commit hook will automatically trigger and create a PR
-            with YOUR name on it.
-
-          NIFI SERVICES:
-            NiFi UI: ${NIFI_URL:-https://${VM_IP}:8443/nifi}
+          NiFi UI: ${NIFI_URL:-https://${VM_IP}:8443/nifi}
             Username: ${NIFI_USER}
             Password: (ask team lead)
             
-            Registry: ${REGISTRY_URL:-http://${VM_IP}:18080/nifi-registry}
+          Registry: ${REGISTRY_URL:-http://${VM_IP}:18080/nifi-registry}
 
-          WORKFLOW:
-            1. Configure identity: ~/setup-my-identity.sh (REQUIRED)
-            2. Make changes in NiFi UI
-            3. NiFi Registry commits automatically
-            4. Post-commit hook triggers GitHub Actions
-            5. PR is created with YOUR name
-            6. Team reviews and merges
-            7. Automatic deployment
+          Workflow:
+            1. Make changes in NiFi UI
+            2. NiFi Registry commits automatically
+            3. Post-commit hook triggers GitHub Actions
+            4. PR is created with YOUR name
+            5. Team reviews and merges
 
-          MONITOR DEPLOYMENTS:
-            https://github.com/${{ github.repository }}/actions
-
-          SECURITY:
-            * Never commit SSH keys to Git
-            * Don't share keys via plain email
-            * Use encrypted channels only
-            * Delete keys when no longer needed
+          Monitor: https://github.com/${{ github.repository }}/actions
 
           ===============================================================================
-          For detailed commands, see QUICK-REFERENCE.txt
-          EOF
-          
-          # Create Bash script
-          cat > "${ENV}-access/connect.sh" <<'BASH'
-          #!/bin/bash
-          set -e
-
-          ENV="ENV_PLACEHOLDER"
-          VM_IP="IP_PLACEHOLDER"
-          USERNAME="USER_PLACEHOLDER"
-          KEY="ENV_PLACEHOLDER-key.pem"
-
-          echo "====================================================="
-          echo "  Connecting to ${ENV} VM                            "
-          echo "====================================================="
-          echo ""
-
-          if [ ! -f "$KEY" ]; then
-              echo "ERROR: SSH key not found: $KEY"
-              echo "Make sure you're in the correct directory."
-              exit 1
-          fi
-
-          echo "Setting key permissions..."
-          chmod 600 "$KEY"
-
-          echo "Connecting to ${USERNAME}@${VM_IP}..."
-          echo ""
-          echo "⚠️  AFTER CONNECTING, RUN: ~/setup-my-identity.sh"
-          echo ""
-          
-          ssh -i "$KEY" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "${USERNAME}@${VM_IP}"
-          BASH
-          
-          sed -i "s/ENV_PLACEHOLDER/${ENV}/g" "${ENV}-access/connect.sh"
-          sed -i "s/IP_PLACEHOLDER/${VM_IP}/g" "${ENV}-access/connect.sh"
-          sed -i "s/USER_PLACEHOLDER/${USERNAME}/g" "${ENV}-access/connect.sh"
-          chmod +x "${ENV}-access/connect.sh"
-          
-          # Create Batch script
-          cat > "${ENV}-access/connect.bat" <<'BAT'
-          @echo off
-          setlocal enabledelayedexpansion
-
-          set ENV=ENV_PLACEHOLDER
-          set VM_IP=IP_PLACEHOLDER
-          set USERNAME=USER_PLACEHOLDER
-          set KEY=ENV_PLACEHOLDER-key.pem
-
-          echo "====================================================="
-          echo "  Connecting to %ENV% VM                             "
-          echo "====================================================="
-          echo.
-
-          if not exist "%KEY%" (
-              echo ERROR: SSH key not found: %KEY%
-              pause
-              exit /b 1
-          )
-
-          where ssh >nul 2>&1
-          if %ERRORLEVEL% NEQ 0 (
-              echo ERROR: SSH not found. Install OpenSSH:
-              echo    Settings -^> Apps -^> Optional Features -^> OpenSSH Client
-              echo    Or use: connect.ps1 or WSL
-              pause
-              exit /b 1
-          )
-
-          echo Connecting to %USERNAME%@%VM_IP%...
-          echo.
-          echo WARNING: After connecting, run: ~/setup-my-identity.sh
-          echo.
-
-          ssh -i "%KEY%" -o StrictHostKeyChecking=no -o UserKnownHostsFile=NUL %USERNAME%@%VM_IP%
-
-          if %ERRORLEVEL% NEQ 0 (
-              echo.
-              echo ERROR: Connection failed
-              echo Try: .\connect.ps1 or wsl ./connect.sh
-              pause
-          )
-          BAT
-          
-          sed -i "s/ENV_PLACEHOLDER/${ENV}/g" "${ENV}-access/connect.bat"
-          sed -i "s/IP_PLACEHOLDER/${VM_IP}/g" "${ENV}-access/connect.bat"
-          sed -i "s/USER_PLACEHOLDER/${USERNAME}/g" "${ENV}-access/connect.bat"
-          
-          # Create PowerShell script
-          cat > "${ENV}-access/connect.ps1" <<'PS1'
-          $ErrorActionPreference = "Stop"
-
-          $ENV_NAME = "ENV_PLACEHOLDER"
-          $VM_IP = "IP_PLACEHOLDER"
-          $USERNAME = "USER_PLACEHOLDER"
-          $KEY = "ENV_PLACEHOLDER-key.pem"
-
-          Write-Host "=====================================================" -ForegroundColor Cyan
-          Write-Host "  Connecting to $ENV_NAME VM                         " -ForegroundColor Cyan
-          Write-Host "=====================================================" -ForegroundColor Cyan
-          Write-Host ""
-
-          if (-not (Test-Path $KEY)) {
-              Write-Host "ERROR: SSH key not found: $KEY" -ForegroundColor Red
-              Read-Host "Press Enter to exit"
-              exit 1
-          }
-
-          $sshExists = Get-Command ssh -ErrorAction SilentlyContinue
-          if (-not $sshExists) {
-              Write-Host "ERROR: SSH not found" -ForegroundColor Red
-              Write-Host "Install: Settings -> Apps -> Optional Features -> OpenSSH Client" -ForegroundColor Yellow
-              Read-Host "Press Enter to exit"
-              exit 1
-          }
-
-          Write-Host "Setting key permissions..." -ForegroundColor Green
-          icacls $KEY /inheritance:r /grant:r "$($env:USERNAME):(R)" | Out-Null
-
-          Write-Host "Connecting to ${USERNAME}@${VM_IP}..." -ForegroundColor Green
-          Write-Host ""
-          Write-Host "WARNING: After connecting, run: ~/setup-my-identity.sh" -ForegroundColor Yellow
-          Write-Host ""
-
-          try {
-              ssh -i $KEY -o StrictHostKeyChecking=no -o UserKnownHostsFile=NUL "${USERNAME}@${VM_IP}"
-          } catch {
-              Write-Host ""
-              Write-Host "ERROR: Connection failed: $_" -ForegroundColor Red
-              Read-Host "Press Enter to exit"
-              exit 1
-          }
-          PS1
-          
-          sed -i "s/ENV_PLACEHOLDER/${ENV}/g" "${ENV}-access/connect.ps1"
-          sed -i "s/IP_PLACEHOLDER/${VM_IP}/g" "${ENV}-access/connect.ps1"
-          sed -i "s/USER_PLACEHOLDER/${USERNAME}/g" "${ENV}-access/connect.ps1"
-          
-          # Create Quick Reference
-          cat > "${ENV}-access/QUICK-REFERENCE.txt" <<EOF
-          ===============================================================================
-                                  QUICK REFERENCE - ${ENV}
+          QUICK COMMANDS
           ===============================================================================
 
-          CONNECT:
-            Windows:  connect.bat  or  .\connect.ps1  or  wsl ./connect.sh
-            Mac/Linux:  ./connect.sh
-            Manual:  ssh -i ${ENV}-key.pem ${USERNAME}@${VM_IP}
-
-          ⚠️  FIRST TIME SETUP (REQUIRED):
-            ~/setup-my-identity.sh
-
-          ON THE VM:
+          Check Identity:
+            git config --global user.name
+            git config --global user.email
 
           Check Status:
             nifi_check_config
-
-          Check Your Identity:
-            git config --global user.name
-            git config --global user.email
 
           Navigate:
             cd ~/nificicd-g1p2
@@ -461,153 +187,187 @@ jobs:
             nifi_trigger_workflow "test"
 
           View Workflows:
-            gh run list
-            gh run watch
+            gh run list && gh run watch
 
           Docker Status:
             cd ~/nificicd-g1p2
             sudo docker compose -f compose.${ENV}.yml ps
-
-          View Logs:
             sudo docker compose -f compose.${ENV}.yml logs -f nifi
 
-          Commit & Deploy:
-            cd ~/nificicd-g1p2
-            git add flows/
-            git commit -m "your message"
-            # Webhook triggers automatically
-            # PR will show YOUR name!
+          ===============================================================================
+          TROUBLESHOOTING
+          ===============================================================================
 
-          NIFI UI:
-            URL: ${NIFI_URL:-https://${VM_IP}:8443/nifi}
-            User: ${NIFI_USER}
-            Pass: (ask team lead)
-
-          TROUBLESHOOTING:
-
-          Identity Not Configured:
-            ~/setup-my-identity.sh
-            
-          Check Identity:
-            git config --global user.name
-            git config --global user.email
-
-          Identity Shows Wrong Name:
-            ~/setup-my-identity.sh
-            (Enter your correct information)
-
-          PR Shows Admin Name:
-            You didn't configure your identity before committing
-            Fix: ~/setup-my-identity.sh
-            Future commits will show your name
+          Identity shows wrong name:
+            → Run ~/setup-my-identity.sh again
 
           Windows SSH not found:
-            Settings -> Apps -> Optional Features -> Add OpenSSH Client
-            Or use WSL: wsl ./connect.sh
+            → Settings → Apps → Optional Features → Add OpenSSH Client
+            → Or use WSL: wsl ./connect.sh
 
           Permission denied:
-            Windows: Run as Administrator
-            Mac/Linux: chmod 600 ${ENV}-key.pem
+            → Windows: Run as Administrator
+            → Mac/Linux: chmod 600 ${ENV}-key.pem
 
           Connection timeout:
-            Check VM is running in Azure Portal
-            Verify firewall allows your IP
-            Check network connectivity
+            → Check VM is running in Azure Portal
+            → Verify firewall allows your IP
 
-          ==================================================================
+          ===============================================================================
+          SECURITY NOTES
+          ===============================================================================
+
+          • Never commit SSH keys to Git
+          • Share via encrypted channels only
+          • Delete keys when no longer needed
+          • Artifacts expire in 7 days
+
+          ===============================================================================
           EOF
           
-          echo "Access package created for ${ENV}"
+          # Create connection scripts with template function
+          create_script() {
+            local template=$1
+            local file=$2
+            echo "$template" > "${ENV}-access/$file"
+            sed -i "s/ENV_PLACEHOLDER/${ENV}/g; s/IP_PLACEHOLDER/${VM_IP}/g; s/USER_PLACEHOLDER/${USERNAME}/g" "${ENV}-access/$file"
+            [[ $file == *.sh ]] && chmod +x "${ENV}-access/$file"
+          }
+          
+          # Bash script
+          create_script '#!/bin/bash
+          set -e
+          ENV="ENV_PLACEHOLDER"
+          VM_IP="IP_PLACEHOLDER"
+          USERNAME="USER_PLACEHOLDER"
+          KEY="ENV_PLACEHOLDER-key.pem"
 
-      - name: Create and Upload Archive
-        if: steps.vm_info.outputs.exists == 'true'
-        run: |
-          ENV="${{ matrix.environment }}"
+          echo "====================================================="
+          echo "  Connecting to ${ENV} VM"
+          echo "====================================================="
+
+          [ ! -f "$KEY" ] && { echo "ERROR: SSH key not found: $KEY"; exit 1; }
+
+          chmod 600 "$KEY"
+          echo -e "\nAFTER CONNECTING, RUN: ~/setup-my-identity.sh\n"
+          ssh -i "$KEY" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "${USERNAME}@${VM_IP}"' connect.sh
           
-          echo "Creating archive..."
-          cd "${ENV}-access"
-          zip -j "../${ENV}-vm-access.zip" ./*
-          cd ..
+          # Batch script
+          create_script '@echo off
+          set ENV=ENV_PLACEHOLDER
+          set VM_IP=IP_PLACEHOLDER
+          set USERNAME=USER_PLACEHOLDER
+          set KEY=ENV_PLACEHOLDER-key.pem
+
+          echo =====================================================
+          echo   Connecting to %ENV% VM
+          echo =====================================================
+
+          if not exist "%KEY%" (
+              echo ERROR: SSH key not found: %KEY%
+              pause & exit /b 1
+          )
+
+          where ssh >nul 2>&1 || (
+              echo ERROR: Install OpenSSH via Settings -^> Apps -^> Optional Features
+              pause & exit /b 1
+          )
+
+          echo.
+          echo WARNING: After connecting, run: ~/setup-my-identity.sh
+          echo.
+          ssh -i "%KEY%" -o StrictHostKeyChecking=no -o UserKnownHostsFile=NUL %USERNAME%@%VM_IP%
+
+          if %ERRORLEVEL% NEQ 0 (
+              echo ERROR: Connection failed. Try: .\connect.ps1 or wsl ./connect.sh
+              pause
+          )' connect.bat
           
-          if [ ! -f "${ENV}-vm-access.zip" ]; then
-            echo "ERROR: Failed to create archive"
-            exit 1
-          fi
-          
-          echo "Archive created: ${ENV}-vm-access.zip"
-          echo "Contents:"
-          unzip -l "${ENV}-vm-access.zip"
+          # PowerShell script
+          create_script '$ErrorActionPreference = "Stop"
+          $ENV_NAME = "ENV_PLACEHOLDER"
+          $VM_IP = "IP_PLACEHOLDER"
+          $USERNAME = "USER_PLACEHOLDER"
+          $KEY = "ENV_PLACEHOLDER-key.pem"
+
+          Write-Host "=====================================================" -ForegroundColor Cyan
+          Write-Host "  Connecting to $ENV_NAME VM" -ForegroundColor Cyan
+          Write-Host "=====================================================" -ForegroundColor Cyan
+
+          if (-not (Test-Path $KEY)) {
+              Write-Host "ERROR: SSH key not found: $KEY" -ForegroundColor Red
+              Read-Host "Press Enter to exit"
+              exit 1
+          }
+
+          if (-not (Get-Command ssh -ErrorAction SilentlyContinue)) {
+              Write-Host "ERROR: Install OpenSSH via Settings -> Apps -> Optional Features" -ForegroundColor Red
+              Read-Host "Press Enter to exit"
+              exit 1
+          }
+
+          icacls $KEY /inheritance:r /grant:r "$($env:USERNAME):(R)" | Out-Null
+          Write-Host "`nAfter connecting, run: ~/setup-my-identity.sh`n" -ForegroundColor Yellow
+
+          try {
+              ssh -i $KEY -o StrictHostKeyChecking=no -o UserKnownHostsFile=NUL "${USERNAME}@${VM_IP}"
+          } catch {
+              Write-Host "ERROR: Connection failed: $_" -ForegroundColor Red
+              Read-Host "Press Enter to exit"
+              exit 1
+          }' connect.ps1
+
+          # Create archive
+          cd "${ENV}-access" && zip -j "../${ENV}-vm-access.zip" ./* && cd ..
+          echo "Access package created for ${ENV}"
 
       - name: Upload Access Package
         if: steps.vm_info.outputs.exists == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.environment }}-vm-access
-          path: ${{ matrix.environment }}-access/ 
+          path: ${{ matrix.environment }}-vm-access.zip
           retention-days: 7
 
-      - name: Display Summary
+      - name: Job Summary
         if: steps.vm_info.outputs.exists == 'true'
         run: |
           ENV="${{ matrix.environment }}"
-          VM_IP="${{ steps.vm_info.outputs.ip }}"
-          USERNAME="${{ secrets.VM_USERNAME }}"
-          
-          echo ""
-          echo "================================================"
-          echo "  ${ENV} VM Access Package Ready                "
-          echo "================================================"
-          echo ""
-          echo "Download: ${ENV}-vm-access.zip (from Artifacts)"
-          echo ""
-          echo "VM: ${USERNAME}@${VM_IP}"
-          echo "Key: ${ENV}-key.pem"
-          echo ""
-          echo "⚠️  CRITICAL: After connecting, run:"
-          echo "    ~/setup-my-identity.sh"
-          echo ""
-          echo "This ensures commits are attributed to YOU!"
-          echo ""
-          echo "Windows: Double-click connect.bat"
-          echo "Mac/Linux: ./connect.sh"
-          echo ""
-
+          echo "**${ENV^^} VM Access Ready**" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **VM:** ${{ secrets.VM_USERNAME }}@${{ steps.vm_info.outputs.ip }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Download:** ${ENV}-vm-access.zip from Artifacts" >> $GITHUB_STEP_SUMMARY
+          echo "- **After connecting:** Run \`~/setup-my-identity.sh\`" >> $GITHUB_STEP_SUMMARY
   summary:
-    name: Summary
+    name: Workflow Summary
     needs: [parse-environments, generate-access]
     if: always()
     runs-on: ubuntu-22.04
     steps:
-      - name: Display Summary
+      - name: Final Summary
         run: |
-          echo ""
-          echo "================================================"
-          echo "          VM Access Packages Ready              "
-          echo "================================================"
-          echo ""
-          echo "DOWNLOAD:"
-          echo "  Actions -> This Run -> Artifacts"
-          echo ""
-          echo "⚠️⚠️⚠️  CRITICAL INSTRUCTIONS  ⚠️⚠️⚠️"
-          echo ""
-          echo "Each developer MUST configure their Git identity"
-          echo "BEFORE making any commits!"
-          echo ""
-          echo "USAGE:"
-          echo "  1. Download and extract zip"
-          echo "  2. Windows: Double-click connect.bat"
-          echo "     Mac/Linux: Run ./connect.sh"
-          echo "  3. ⚠️  REQUIRED: ~/setup-my-identity.sh"
-          echo "  4. Verify: nifi_check_config"
-          echo ""
-          echo "WHY THIS MATTERS:"
-          echo "  ✓ Your commits show YOUR name"
-          echo "  ✓ PRs are attributed to YOU (not admin)"
-          echo "  ✓ You get credit for your work"
-          echo "  ✓ Team knows who made changes"
-          echo ""
-          echo "SECURITY:"
-          echo "  * Share via encrypted channels only"
-          echo "  * Never commit keys to Git"
-          echo "  * Artifacts expire in 7 days"
-          echo ""
+          cat << 'EOF'
+          
+          ================================================
+                    VM Access Packages Ready
+          ================================================
+          
+          DOWNLOAD: Actions → This Run → Artifacts
+          
+          IMPORTANT: Each developer MUST run this after connecting:
+              ~/setup-my-identity.sh
+          
+          USAGE:
+            1. Download and extract zip
+            2. Windows: Double-click connect.bat
+               Mac/Linux: Run ./connect.sh
+            3. REQUIRED: ~/setup-my-identity.sh
+            4. Verify: nifi_check_config
+          
+          WHY: Ensures commits/PRs are attributed to YOU
+          
+          SECURITY:
+            • Share via encrypted channels only
+            • Artifacts expire in 7 days
+          
+          EOF

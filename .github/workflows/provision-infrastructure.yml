@@ -1,7 +1,6 @@
 name: Provision Infrastructure
 
 on:
-
   workflow_dispatch:
     inputs:
       environments:
@@ -30,7 +29,6 @@ permissions:
   actions: read
 
 jobs:
-  
   determine-environments:
     name: Determine Target Environments
     runs-on: ubuntu-22.04
@@ -38,7 +36,6 @@ jobs:
       environments: ${{ steps.set_envs.outputs.environments }}
       environment_list: ${{ steps.set_envs.outputs.environment_list }}
     steps:
-
       - name: Parse and Validate Environments
         id: set_envs
         run: |
@@ -52,9 +49,7 @@ jobs:
           for env in "${ENV_ARRAY[@]}"; do
             case "$env" in
               development|staging|production)
-                if [[ ! " ${VALID_ENVS[@]} " =~ " ${env} " ]]; then
-                  VALID_ENVS+=("$env")
-                fi
+                [[ ! " ${VALID_ENVS[@]} " =~ " ${env} " ]] && VALID_ENVS+=("$env")
                 ;;
               *)
                 INVALID_ENVS+=("$env")
@@ -62,33 +57,18 @@ jobs:
             esac
           done
           
-          if [ ${#INVALID_ENVS[@]} -gt 0 ]; then
-            echo "Invalid environment(s): ${INVALID_ENVS[*]}"
-            echo "Valid options: development, staging, production"
-            exit 1
-          fi
+          [ ${#INVALID_ENVS[@]} -gt 0 ] && echo "Invalid: ${INVALID_ENVS[*]}" && exit 1
+          [ ${#VALID_ENVS[@]} -eq 0 ] && echo "No valid environments" && exit 1
           
-          if [ ${#VALID_ENVS[@]} -eq 0 ]; then
-            echo "No valid environments specified"
-            exit 1
-          fi
-          
-          JSON_ARRAY="["
-          for i in "${!VALID_ENVS[@]}"; do
-            [ $i -gt 0 ] && JSON_ARRAY+=","
-            JSON_ARRAY+="\"${VALID_ENVS[$i]}\""
-          done
-          JSON_ARRAY+="]"
-          
+          JSON_ARRAY=$(printf '%s\n' "${VALID_ENVS[@]}" | jq -R . | jq -s .)
           ENV_LIST=$(IFS=','; echo "${VALID_ENVS[*]}")
           
           echo "environments=$JSON_ARRAY" >> $GITHUB_OUTPUT
           echo "environment_list=$ENV_LIST" >> $GITHUB_OUTPUT
-          
           echo "Validated environments: ${VALID_ENVS[*]}"
 
-  check-infrastructure:
-    name: Check Infrastructure
+  check-and-destroy:
+    name: Check/Destroy ${{ matrix.environment }}
     needs: determine-environments
     runs-on: ubuntu-22.04
     strategy:
@@ -97,10 +77,6 @@ jobs:
       fail-fast: false
     environment: ${{ matrix.environment }}
     steps:
-
-      - name: Checkout code
-        uses: actions/checkout@v5
-        
       - name: Azure Login
         uses: azure/login@v1
         with:
@@ -112,94 +88,45 @@ jobs:
               "tenantId": "${{ secrets.ARM_TENANT_ID }}"
             }
             
-      - name: Check if Infrastructure Exists
-        id: check_infra
+      - name: Check and Optionally Destroy Infrastructure
         run: |
           ENV="${{ matrix.environment }}"
-          
-          # Map environment to resource group
-          case $ENV in
-            development) RG="rg-nificicd-g1p2-dev"; VM_NAME="vm-nifi-development" ;;
-            staging) RG="rg-nificicd-g1p2-staging"; VM_NAME="vm-nifi-staging" ;;
-            production) RG="rg-nificicd-g1p2-prod"; VM_NAME="vm-nifi-production" ;;
-          esac
+          RG_SUFFIX="${ENV/development/dev}"
+          RG="rg-nificicd-g1p2-$RG_SUFFIX"
+          VM_NAME="vm-nifi-$ENV"
           
           echo "Checking $ENV infrastructure..."
           
-          EXISTS="false"
-          if az group exists --name $RG | grep -q "true"; then
-            if az vm show --resource-group $RG --name $VM_NAME &>/dev/null; then
-              VM_IP=$(az vm show -d --resource-group $RG --name $VM_NAME --query publicIps -o tsv)
-              EXISTS="true"
+          if az group exists --name $RG | grep -q "true" && az vm show --resource-group $RG --name $VM_NAME &>/dev/null; then
+            VM_IP=$(az vm show -d --resource-group $RG --name $VM_NAME --query publicIps -o tsv)
+            echo "Infrastructure exists - VM IP: $VM_IP"
+            
+            if [ "${{ github.event.inputs.force_recreate }}" = "true" ]; then
+              echo "FORCE RECREATE - Deleting resource group: $RG"
+              az group delete --name $RG --yes --no-wait
               
-              echo "Infrastructure exists"
-              echo "VM IP: $VM_IP"
+              echo "Waiting for deletion..."
+              for i in {1..30}; do
+                if ! az group exists --name $RG | grep -q "true"; then
+                  echo "Resource group deleted"
+                  exit 0
+                fi
+                echo "  Waiting... ($i/30)"
+                sleep 10
+              done
               
-              if [ "${{ github.event.inputs.force_recreate }}" = "true" ]; then
-                echo "FORCE RECREATE REQUESTED - Will delete and recreate"
+              if az group exists --name $RG | grep -q "true"; then
+                echo "ERROR: Deletion timed out - check Azure Portal"
+                exit 1
               fi
-            fi
-          fi
-
-  destroy-existing:
-    name: Destroy Existing Infrastructure
-    needs: [determine-environments, check-infrastructure]
-    if: github.event.inputs.force_recreate == 'true'
-    runs-on: ubuntu-22.04
-    strategy:
-      matrix:
-        environment: ${{ fromJson(needs.determine-environments.outputs.environments) }}
-      fail-fast: false
-    environment: ${{ matrix.environment }}
-    steps:
-
-      - name: Azure Login
-        uses: azure/login@v1
-        with:
-          creds: |
-            {
-              "clientId": "${{ secrets.ARM_CLIENT_ID }}",
-              "clientSecret": "${{ secrets.ARM_CLIENT_SECRET }}",
-              "subscriptionId": "${{ secrets.ARM_SUBSCRIPTION_ID }}",
-              "tenantId": "${{ secrets.ARM_TENANT_ID }}"
-            }
-            
-      - name: Delete Resource Group
-        run: |
-          ENV="${{ matrix.environment }}"
-          case $ENV in
-            development) RG="rg-nificicd-g1p2-dev" ;;
-            staging) RG="rg-nificicd-g1p2-staging" ;;
-            production) RG="rg-nificicd-g1p2-prod" ;;
-          esac
-          
-          if az group exists --name $RG | grep -q "true"; then
-            echo "Deleting resource group: $RG"
-            az group delete --name $RG --yes --no-wait
-            
-            echo "Waiting for deletion to complete..."
-            for i in {1..30}; do
-              if ! az group exists --name $RG | grep -q "true"; then
-                echo "✓ Resource group deleted successfully"
-                exit 0
-              fi
-              echo "Waiting... ($i/30)"
-              sleep 10
-            done
-            
-            # Fail if deletion didn't complete
-            if az group exists --name $RG | grep -q "true"; then
-              echo "ERROR: Resource group deletion timed out after 5 minutes"
-              echo "Please check Azure Portal and delete manually if needed"
-              exit 1
             fi
           else
-            echo "No resources to delete"
+            echo "No existing infrastructure"
           fi
           
   setup-secrets:
-    name: Setup Secrets
-    needs: [determine-environments, check-infrastructure, destroy-existing]
+    name: Setup Secrets - ${{ matrix.environment }}
+    needs: [determine-environments, check-and-destroy]
     if: always() && needs.determine-environments.result == 'success'
     runs-on: ubuntu-22.04
     strategy:
@@ -208,7 +135,6 @@ jobs:
       fail-fast: false
     environment: ${{ matrix.environment }}
     steps:
-
       - name: Checkout code
         uses: actions/checkout@v5
       
@@ -218,10 +144,11 @@ jobs:
         run: |
           ENV="${{ matrix.environment }}"
           
+          # Check if valid SSH keys exist
           if [ -n "${{ secrets.SSH_PUBLIC_KEY }}" ] && [ -n "${{ secrets.SSH_PRIVATE_KEY }}" ]; then
             KEY=$(echo "${{ secrets.SSH_PUBLIC_KEY }}" | xargs)
             if [[ "$KEY" =~ ^(ssh-rsa|ssh-ed25519|ecdsa-sha2-nistp256)[[:space:]] ]]; then
-              echo "✓ SSH keys already configured"
+              echo "SSH keys already configured"
               exit 0
             fi
           fi
@@ -229,13 +156,17 @@ jobs:
           echo "Generating SSH key pair for $ENV..."
           
           if [ -z "$GH_TOKEN" ] || ! gh auth status &>/dev/null; then
-            echo "ERROR: GH_TOKEN not found in repository secrets or invalid"
-            echo ""
-            echo "Please add GH_TOKEN to your repository secrets:"
-            echo "  1. Go to: Settings → Secrets and variables → Actions"
-            echo "  2. Create a new repository secret named: GH_TOKEN"
-            echo "  3. Generate a token at: https://github.com/settings/tokens"
-            echo "  4. Required scopes: repo, workflow"
+            cat <<ERROR
+          
+          ERROR: GH_TOKEN not found or invalid
+          
+          Please add GH_TOKEN to repository secrets:
+            1. Settings → Secrets and variables → Actions
+            2. Create: GH_TOKEN
+            3. Generate at: https://github.com/settings/tokens
+            4. Required scopes: repo, workflow
+          
+          ERROR
             exit 1
           fi
           
@@ -245,7 +176,7 @@ jobs:
           cat ~/.ssh/nifi_key_${ENV}.pub | gh secret set SSH_PUBLIC_KEY --env $ENV
           cat ~/.ssh/nifi_key_${ENV} | gh secret set SSH_PRIVATE_KEY --env $ENV
           
-          echo "✓ SSH keys configured"
+          echo "SSH keys configured"
 
       - name: Setup Environment Secrets
         env:
@@ -253,15 +184,12 @@ jobs:
         run: |
           ENV="${{ matrix.environment }}"
           
-          set_secret() {
-            echo "$2" | gh secret set "$1" --env $ENV 2>/dev/null
-          }
+          # Helper function
+          set_secret() { echo "$2" | gh secret set "$1" --env $ENV 2>/dev/null; }
           
           # VM Configuration
           set_secret "VM_USERNAME" "azureuser"
           set_secret "VM_SSH_PORT" "22"
-          
-          # NiFi Configuration
           set_secret "NIFI_USERNAME" "admin"
           
           # Generate passwords if missing
@@ -272,10 +200,10 @@ jobs:
           set_secret "NIFI_HTTPS_PORT" "8443"
           set_secret "NIFI_REGISTRY_PORT" "18080"
           
-          echo "✓ Secrets configured for $ENV"
+          echo "Secrets configured for $ENV"
 
   provision-and-configure:
-    name: Provision & Configure Infrastructure
+    name: Provision ${{ matrix.environment }}
     needs: [determine-environments, setup-secrets]
     if: always() && needs.setup-secrets.result == 'success'
     runs-on: ubuntu-22.04
@@ -286,7 +214,6 @@ jobs:
       fail-fast: false
     environment: ${{ matrix.environment }}
     steps:
-
       - name: Checkout code
         uses: actions/checkout@v5
 
@@ -337,37 +264,28 @@ jobs:
           echo "ip=$VM_IP" >> $GITHUB_OUTPUT
           echo "VM IP obtained"
           
-          # Get resource group and VM name
           ENV="${{ matrix.environment }}"
-          case $ENV in
-            development) RG="rg-nificicd-g1p2-dev"; VM_NAME="vm-nifi-development" ;;
-            staging) RG="rg-nificicd-g1p2-staging"; VM_NAME="vm-nifi-staging" ;;
-            production) RG="rg-nificicd-g1p2-prod"; VM_NAME="vm-nifi-production" ;;
-          esac
+          RG_SUFFIX="${ENV/development/dev}"
+          RG="rg-nificicd-g1p2-$RG_SUFFIX"
+          VM_NAME="vm-nifi-$ENV"
           
           # Wait for VM to be fully running
           echo "Waiting for VM to be fully running..."
           for i in {1..60}; do
-            STATUS=$(az vm get-instance-view \
-              --resource-group $RG \
-              --name $VM_NAME \
-              --query "instanceView.statuses[?code=='PowerState/running'].code" \
-              -o tsv 2>/dev/null)
+            STATUS=$(az vm get-instance-view --resource-group $RG --name $VM_NAME \
+              --query "instanceView.statuses[?code=='PowerState/running'].code" -o tsv 2>/dev/null)
             
             if [ "$STATUS" == "PowerState/running" ]; then
-              echo "✓ VM is running"
-              sleep 20  # Brief buffer for cloud-init and services
+              echo "VM is running"
+              sleep 20
               break
             fi
             
-            echo "Attempt $i/60 - waiting for VM to start..."
+            echo "Attempt $i/60 - waiting..."
             sleep 5
           done
           
-          if [ "$STATUS" != "PowerState/running" ]; then
-            echo "ERROR: VM did not reach running state in time"
-            exit 1
-          fi
+          [ "$STATUS" != "PowerState/running" ] && echo "ERROR: VM did not reach running state" && exit 1
 
       - name: Update Secrets with VM Details
         env:
@@ -381,37 +299,34 @@ jobs:
           echo "https://$VM_IP:8443" | gh secret set NIFI_URL --env "$ENV"
           echo "http://$VM_IP:18080" | gh secret set REGISTRY_URL --env "$ENV"
           
-          echo "✓ Secrets updated"
+          echo "Secrets updated"
 
-      - name: Setup SSH Key for Ansible
+      - name: Setup SSH and Install Ansible
         run: |
           mkdir -p ~/.ssh
           echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/nifi_key
           chmod 600 ~/.ssh/nifi_key
-
-      - name: Install Ansible
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y ansible
+          sudo apt-get update && sudo apt-get install -y ansible
 
       - name: Wait for SSH
         run: |
           VM_IP="${{ steps.vm_ready.outputs.ip }}"
-          echo "Waiting for SSH on VM..."
+          echo "Waiting for SSH..."
+          
           for i in {1..30}; do
-            if ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-                   -o ConnectTimeout=5 \
+            if ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 \
                    -i ~/.ssh/nifi_key ${{ secrets.VM_USERNAME }}@$VM_IP "echo SSH Ready" 2>/dev/null; then
-              echo "✓ SSH ready"
+              echo "SSH ready"
               exit 0
             fi
             echo "Attempt $i/30..."
             sleep 10
           done
-          echo "ERROR: SSH timeout - VM not accessible"
+          
+          echo "ERROR: SSH timeout"
           exit 1
 
-      - name: Configure VM with Ansible (Fully Automated)
+      - name: Configure VM with Ansible
         env:
           GITHUB_PAT: ${{ secrets.GH_TOKEN }}
           NIFI_ENVIRONMENT: ${{ matrix.environment }}
@@ -421,28 +336,24 @@ jobs:
           ${{ steps.vm_ready.outputs.ip }} ansible_user=${{ secrets.VM_USERNAME }} ansible_ssh_private_key_file=~/.ssh/nifi_key ansible_ssh_common_args='-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null'
           EOF
           
-          echo "Configuring environment: ${NIFI_ENVIRONMENT}"
-          
-          ansible-playbook -i inventory.ini \
-            ansible/configure-vm.yml \
+          ansible-playbook -i inventory.ini ansible/configure-vm.yml \
             -e "nifi_environment=${NIFI_ENVIRONMENT}" \
             -e "github_repo=${{ github.repository }}" \
-            -e "github_pat=${GITHUB_PAT}" \
-            -v
+            -e "github_pat=${GITHUB_PAT}" -v
 
-      - name: Update Docker Compose Environment File with Real Values
+      - name: Update and Validate Configuration
         run: |
           VM_IP="${{ steps.vm_ready.outputs.ip }}"
           VM_USER="${{ secrets.VM_USERNAME }}"
           ENV="${{ matrix.environment }}"
           
-          echo "Updating .env.$ENV file with real values..."
-          
+          # Update environment file
+          echo "Updating .env.$ENV..."
           ssh -i ~/.ssh/nifi_key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
             $VM_USER@$VM_IP "cat > ~/nificicd-g1p2/.env.$ENV <<'EOF'
           # Docker Compose Environment File for $ENV
-          # Generated by provision workflow on $(date -u +%Y-%m-%d\ %H:%M:%S\ UTC)
-
+          # Generated: $(date -u +%Y-%m-%d\ %H:%M:%S\ UTC)
+          
           NIFI_USERNAME=${{ secrets.NIFI_USERNAME }}
           NIFI_PASSWORD=${{ secrets.NIFI_PASSWORD }}
           NIFI_SENSITIVE_PROPS_KEY=${{ secrets.NIFI_SENSITIVE_PROPS_KEY }}
@@ -453,100 +364,57 @@ jobs:
           EOF
           chmod 600 ~/nificicd-g1p2/.env.$ENV"
           
-          echo "✓ Environment file updated with real values: .env.$ENV"
+          echo "Environment file updated"
           
-          # Verify the file was created
-          ssh -i ~/.ssh/nifi_key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-            $VM_USER@$VM_IP "ls -la ~/nificicd-g1p2/.env.$ENV && echo '✓ File exists and has correct permissions'"
-
-      - name: Fix Config Directory Permissions
-        run: |
-          VM_IP="${{ steps.vm_ready.outputs.ip }}"
-          VM_USER="${{ secrets.VM_USERNAME }}"
-          
-          echo "Fixing config directory permissions..."
-          
+          # Fix permissions
           ssh -i ~/.ssh/nifi_key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
             $VM_USER@$VM_IP "sudo chown -R $VM_USER:$VM_USER ~/nificicd-g1p2/config/ 2>/dev/null || true"
           
-          echo "✓ Permissions fixed"
-
-      - name: Validate Docker Compose Configuration
-        run: |
-          VM_IP="${{ steps.vm_ready.outputs.ip }}"
-          VM_USER="${{ secrets.VM_USERNAME }}"
-          ENV="${{ matrix.environment }}"
-          
-          echo "Validating Docker Compose configuration..."
-          
+          # Validate Docker Compose
+          echo "Validating Docker Compose..."
           ssh -i ~/.ssh/nifi_key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
             $VM_USER@$VM_IP "cd ~/nificicd-g1p2 && docker compose -f compose.$ENV.yml --env-file .env.$ENV config --quiet"
           
-          if [ $? -eq 0 ]; then
-            echo "✓ Docker Compose configuration is valid"
-          else
-            echo "ERROR: Docker Compose configuration validation failed"
-            exit 1
-          fi
-
-      - name: Verify Automated Setup
-        run: |
-          VM_IP="${{ steps.vm_ready.outputs.ip }}"
-          VM_USER="${{ secrets.VM_USERNAME }}"
+          [ $? -eq 0 ] && echo "Docker Compose valid" || exit 1
           
-          echo "Verifying automated setup..."
-          
+          # Verify setup
+          echo "Verifying setup..."
           ssh -i ~/.ssh/nifi_key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
             $VM_USER@$VM_IP "bash -lc 'nifi_check_config'" || true
 
       - name: Display Success Message
         run: |
           ENV="${{ matrix.environment }}"
-          VM_IP="${{ steps.vm_ready.outputs.ip }}"
           
-          echo ""
-          echo "╔══════════════════════════════════════════╗"
-          echo "║  VM Provisioned & Configured (AUTOMATED) ║"
-          echo "╚══════════════════════════════════════════╝"
-          echo ""
-          echo "Environment: $ENV"
-          echo "VM IP: [MASKED]"
-          echo ""
-          echo "✓ FULLY AUTOMATED SETUP COMPLETE!"
-          echo ""
-          echo "✓ GitHub PAT configured from GH_TOKEN"
-          echo "✓ Git repository initialized"
-          echo "✓ Post-commit hook installed"
-          echo "✓ Helper scripts ready"
-          echo "✓ Environment file created (.env.$ENV)"
-          echo "✓ Permissions configured"
-          echo "✓ Docker Compose validated"
-          echo ""
-          echo "───────────────────────────────"
-          echo " You can now test immediately: "
-          echo "───────────────────────────────"
-          echo ""
-          echo "SSH to VM:"
-          echo "  ssh ${{ secrets.VM_USERNAME }}@<vm-ip>"
-          echo ""
-          echo "Verify setup:"
-          echo "  nifi_check_config"
-          echo ""
-          echo "Deploy manually:"
-          echo "  cd ~/nificicd-g1p2"
-          echo "  docker compose -f compose.$ENV.yml --env-file .env.$ENV up -d"
-          echo ""
-          echo "Test webhook:"
-          echo "  nifi_trigger_workflow 'Automated setup test'"
-          echo ""
-          echo "Or test with commit:"
-          echo "  cd ~/nificicd-g1p2"
-          echo "  echo 'test' >> flows/test.txt"
-          echo "  git add flows/ && git commit -m 'test: automated setup'"
-          echo ""
-          echo "Monitor deployments:"
-          echo "  https://github.com/${{ github.repository }}/actions"
-          echo ""
+          cat <<SUCCESS
+          
+          ╔═══════════════════════════════╗
+          ║  VM Provisioned & Configured  ║
+          ╚═══════════════════════════════╝
+          
+          Environment: $ENV
+          
+          FULLY AUTOMATED SETUP COMPLETE!
+          
+          - GitHub PAT configured from GH_TOKEN
+          - Git repository initialized
+          - Post-commit hook installed
+          - Helper scripts ready
+          - Environment file created (.env.$ENV)
+          - Permissions configured
+          - Docker Compose validated
+          
+          ───────────────────────────────────────────
+           You can now test immediately:
+          ───────────────────────────────────────────
+          
+          SSH: ssh ${{ secrets.VM_USERNAME }}@<vm-ip>
+          Verify: nifi_check_config
+          Deploy: cd ~/nificicd-g1p2 && docker compose -f compose.$ENV.yml --env-file .env.$ENV up -d
+          Test: nifi_trigger_workflow 'test'
+          Monitor: https://github.com/${{ github.repository }}/actions
+          
+          SUCCESS
 
       - name: Wait Between Environments
         if: success()
@@ -555,20 +423,12 @@ jobs:
           CURRENT_ENV="${{ matrix.environment }}"
           LAST_ENV=$(echo "$ENVIRONMENTS" | jq -r '.[-1]')
           
-          if [ "$CURRENT_ENV" != "$LAST_ENV" ]; then
-            echo "Waiting ${{ github.event.inputs.wait_time }}s before next environment..."
-            sleep ${{ github.event.inputs.wait_time }}
-          else
-            echo "Last environment - no wait needed"
-          fi
+          [ "$CURRENT_ENV" != "$LAST_ENV" ] && echo "Waiting ${{ github.event.inputs.wait_time }}s..." && sleep ${{ github.event.inputs.wait_time }}
 
   cleanup-on-failure:
     name: Cleanup Failed Infrastructure
     needs: [determine-environments, provision-and-configure]
-    if: |
-      always() && 
-      needs.provision-and-configure.result == 'failure' && 
-      github.event.inputs.terraform_destroy_on_failure == 'true'
+    if: always() && needs.provision-and-configure.result == 'failure' && github.event.inputs.terraform_destroy_on_failure == 'true'
     runs-on: ubuntu-22.04
     strategy:
       matrix:
@@ -576,7 +436,6 @@ jobs:
       fail-fast: false
     environment: ${{ matrix.environment }}
     steps:
-
       - name: Checkout code
         uses: actions/checkout@v5
 
@@ -610,113 +469,103 @@ jobs:
         run: |
           ENV="${{ matrix.environment }}"
           
-          echo ""
-          echo "╔═══════════════════════════════════════════╗"
-          echo "║ Auto-Cleanup: Destroying Failed Resources ║"
-          echo "╚═══════════════════════════════════════════╝"
-          echo "Environment: $ENV"
-          echo ""
+          cat <<CLEANUP
+          
+          ╔═══════════════════════════════════════════╗
+          ║ Auto-Cleanup: Destroying Failed Resources ║
+          ╚═══════════════════════════════════════════╝
+          Environment: $ENV
+          
+          CLEANUP
           
           terraform init -input=false
           
           if terraform destroy -var-file="${ENV}.tfvars" -auto-approve; then
-            echo ""
-            echo "✓ Infrastructure cleaned up for $ENV"
+            echo -e "\nInfrastructure cleaned up for $ENV"
           else
-            echo ""
-            echo "⚠ Cleanup may be incomplete - please verify manually"
-            echo ""
+            echo -e "\nCleanup may be incomplete - verify manually"
             
-            # Fallback to Azure CLI cleanup
-            case $ENV in
-              development) RG="rg-nificicd-g1p2-dev" ;;
-              staging) RG="rg-nificicd-g1p2-staging" ;;
-              production) RG="rg-nificicd-g1p2-prod" ;;
-            esac
+            # Fallback to Azure CLI
+            RG_SUFFIX="${ENV/development/dev}"
+            RG="rg-nificicd-g1p2-$RG_SUFFIX"
             
             if az group exists --name $RG | grep -q "true"; then
               echo "Attempting Azure CLI cleanup..."
               az group delete --name $RG --yes --no-wait
-              echo "✓ Cleanup initiated via Azure CLI"
+              echo "Cleanup initiated via Azure CLI"
             fi
-          fi       
-          echo ""
+          fi
 
   summary:
     name: Provisioning Summary
     needs: [determine-environments, provision-and-configure, cleanup-on-failure]
     if: always()
     runs-on: ubuntu-22.04
-    steps: 
-
+    steps:
       - name: Display Summary
         run: |
-          echo ""
-          echo "╔════════════════════════════════════════╗"
-          echo "║  Infrastructure Provisioning Complete  ║"
-          echo "╚════════════════════════════════════════╝"
-          echo ""
-          echo "Environments: ${{ needs.determine-environments.outputs.environment_list }}"
-          echo "Status: ${{ needs.provision-and-configure.result }}"
+          STATUS="${{ needs.provision-and-configure.result }}"
+          CLEANUP="${{ needs.cleanup-on-failure.result }}"
           
-          if [ "${{ needs.cleanup-on-failure.result }}" = "success" ]; then
-            echo "Cleanup: ✓ Failed infrastructure cleaned up"
-          fi
+          cat <<SUMMARY
           
-          echo ""
+          ╔════════════════════════════════════════╗
+          ║  Infrastructure Provisioning Complete  ║
+          ╚════════════════════════════════════════╝
           
-          if [ "${{ needs.provision-and-configure.result }}" = "success" ]; then
-            echo "✓ All VMs provisioned and configured (FULLY AUTOMATED)"
-            echo ""
-            echo "What was configured automatically:"
-            echo ""
-            echo "  ✓ VMs provisioned on Azure"
-            echo "  ✓ Docker installed and configured"
-            echo "  ✓ GitHub PAT configured from GH_TOKEN secret"
-            echo "  ✓ Git repositories initialized"
-            echo "  ✓ Post-commit hooks installed"
-            echo "  ✓ Helper scripts deployed"
-            echo "  ✓ Environment files created (.env.{environment})"
-            echo "  ✓ Permissions fixed (config directory)"
-            echo "  ✓ Docker Compose configurations validated"
-            echo ""
-            echo "✓ Ready to Use Immediately!"
-            echo ""
-            echo "Test on any VM:"
-            echo "  1. SSH: ssh azureuser@<vm-ip>"
-            echo "  2. Verify: nifi_check_config"
-            echo "  3. Deploy manually:"
-            echo "     cd ~/nificicd-g1p2"
-            echo "     docker compose -f compose.{env}.yml --env-file .env.{env} up -d"
-            echo "  4. Test webhook: nifi_trigger_workflow 'test'"
-            echo ""
-            echo "Or test with a commit:"
-            echo "  cd ~/nificicd-g1p2"
-            echo "  echo 'test' >> flows/test.txt"
-            echo "  git add flows/ && git commit -m 'test'"
-            echo ""
-            echo "Monitor: https://github.com/${{ github.repository }}/actions"
-            echo ""
-            echo "Documentation:"
-            echo " - On VMs: ~/SETUP_INSTRUCTIONS.md"
-            echo " - GitHub: docs/Complete-CI-CD-Flow.md"
+          Environments: ${{ needs.determine-environments.outputs.environment_list }}
+          Status: $STATUS
+          $([ "$CLEANUP" = "success" ] && echo "Cleanup: Failed infrastructure cleaned up")
+          
+          SUMMARY
+          
+          if [ "$STATUS" = "success" ]; then
+            cat <<SUCCESS
+          All VMs provisioned and configured (FULLY AUTOMATED)
+          
+          What was configured automatically:
+          
+            - VMs provisioned on Azure
+            - Docker installed and configured
+            - GitHub PAT configured from GH_TOKEN
+            - Git repositories initialized
+            - Post-commit hooks installed
+            - Helper scripts deployed
+            - Environment files created (.env.{environment})
+            - Permissions fixed (config directory)
+            - Docker Compose configurations validated
+          
+          Ready to Use Immediately!
+          
+          Test on any VM:
+            1. SSH: ssh azureuser@<vm-ip>
+            2. Verify: nifi_check_config
+            3. Deploy: cd ~/nificicd-g1p2 && docker compose -f compose.{env}.yml --env-file .env.{env} up -d
+            4. Test: nifi_trigger_workflow 'test'
+          
+          Monitor: https://github.com/${{ github.repository }}/actions
+          
+          Documentation:
+            - VMs: ~/SETUP_INSTRUCTIONS.md
+            - GitHub: docs/Complete-CI-CD-Flow.md
+          
+          SUCCESS
           else
-            echo "⚠ Some environments failed to provision"
-            echo ""
+            cat <<FAILURE
+          Some environments failed to provision
+          
+          FAILURE
             
             if [ "${{ github.event.inputs.terraform_destroy_on_failure }}" = "true" ]; then
-              if [ "${{ needs.cleanup-on-failure.result }}" = "success" ]; then
-                echo "✓ Failed infrastructure was automatically cleaned up"
-              else
-                echo "⚠ Auto-cleanup may have failed - please verify manually"
-              fi
+              [ "$CLEANUP" = "success" ] && echo "Failed infrastructure auto-cleaned" || echo "Auto-cleanup may have failed - verify manually"
             else
-              echo "Auto-cleanup was disabled"
-              echo "  To clean up manually, run the workflow with force_recreate=true"
-              echo "  Or delete resource groups from Azure Portal"
+              cat <<MANUAL
+          Auto-cleanup was disabled
+            - Force recreate: Run workflow with force_recreate=true
+            - Manual: Delete resource groups from Azure Portal
+          
+          MANUAL
             fi
             
-            echo ""
-            echo "Check the workflow logs for details"
+            echo "Check workflow logs for details"
           fi
-          echo ""

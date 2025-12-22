@@ -44,9 +44,9 @@
     - name: Display configuration
       debug:
         msg:
-          - "=========================================="
-          - " Configuring VM for: {{ environment_name }}"
-          - "=========================================="
+          - "============================================"
+          - " Configuring VM for: {{ environment_name }} " 
+          - "============================================"
           - "Repository: {{ github_repo }}"
           - "Branch: {{ target_branch }}"
           - "PAT: {{ 'Configured' if github_pat != '' else 'NOT SET' }}"
@@ -211,6 +211,7 @@
             name: "{{ nifi_user }}"
             groups: docker
             append: yes
+          register: user_added_to_docker
             
         - name: Configure Docker daemon
           copy:
@@ -239,10 +240,16 @@
             state: started
             enabled: yes
 
+        - name: Notify about Docker group membership
+          debug:
+            msg:
+              - "IMPORTANT: You've been added to the docker group"
+              - "Log out and back in for Docker access, OR run: newgrp docker"
+          when: user_added_to_docker.changed
+
     # ==================
     # GIT CONFIGURATION
     # ==================
-    # NOTE: Removed generic Git config - developers will set their own identity
     - name: Configure Git init.defaultBranch only
       become_user: "{{ nifi_user }}"
       community.general.git_config:
@@ -452,6 +459,25 @@
         GIT_TERMINAL_PROMPT: '0'
       ignore_errors: yes
 
+    - name: Ensure Git remote is configured
+      become_user: "{{ nifi_user }}"
+      when: git_dir.stat.exists and github_repo != ''
+      block:
+        - name: Check git remote configuration
+          command: git config --get remote.origin.url
+          args:
+            chdir: "{{ nifi_home }}"
+          register: git_remote_check
+          failed_when: false
+          changed_when: false
+        
+        - name: Configure git remote if missing
+          command: git remote add origin https://github.com/{{ github_repo }}.git
+          args:
+            chdir: "{{ nifi_home }}"
+          when: git_remote_check.rc != 0
+          failed_when: false
+
     # =========================
     # GIT HOOKS & HELPER SCRIPTS
     # =========================
@@ -506,9 +532,9 @@
         group: "{{ nifi_user }}"
         content: |
           #!/bin/bash
-          echo "========================================"
-          echo "  Configure Your Git Identity"
-          echo "========================================"
+          echo "=============================="
+          echo "  Configure Your Git Identity "
+          echo "=============================="
           echo ""
           echo "This ensures YOUR commits are attributed to YOU,"
           echo "not a generic automation user."
@@ -545,9 +571,9 @@
           git config --global user.email "$DEV_EMAIL"
           
           echo ""
-          echo "========================================="
-          echo "  Git Identity Configured Successfully!"
-          echo "========================================="
+          echo "========================================"
+          echo "  Git Identity Configured Successfully! "
+          ech "========================================="
           echo ""
           echo "  Name: $(git config --global user.name)"
           echo "  Email: $(git config --global user.email)"
@@ -601,9 +627,9 @@
             HOOK_FILE="$HOOK_DIR/post-commit"
             SOURCE_HOOK="$HOME/post-commit-hook.sh"
             
-            echo "=========================================="
-            echo "  Installing Git Post-Commit Hook"
-            echo "=========================================="
+            echo "=================================="
+            echo "  Installing Git Post-Commit Hook "
+            echo "=================================="
             echo ""
             
             if [ ! -d "$NIFI_HOME/.git" ]; then
@@ -737,155 +763,250 @@
             echo "  2. Test hook: ~/test-git-hook.sh"
             echo "  3. Manual trigger: nifi_trigger_workflow 'Test message'"
 
-    - name: Create setup instructions
-      copy:
-        dest: "/home/{{ nifi_user }}/SETUP_INSTRUCTIONS.md"
-        owner: "{{ nifi_user }}"
-        group: "{{ nifi_user }}"
-        mode: '0644'
-        content: |
-          # NiFi VM CI/CD Setup - AUTOMATED
-          
-          ## ⚠️ IMPORTANT FIRST STEP ⚠️
-          
-          **Configure your Git identity so YOUR commits are attributed to YOU!**
-          
-          ```bash
-          ~/setup-my-identity.sh
-          ```
-          
-          This is **REQUIRED** so your PRs show your name, not "NiFi CI/CD Automation".
-          
-          Use your GitHub email address for proper attribution!
-          
-          ---
-          
-          ## Setup Complete!
-          
-          Your VM is configured with GitHub PAT, GitHub CLI, Git repository, post-commit hook, and helper scripts.
-          
-          **Environment**: {{ environment_name }}
-          **Compose File**: `compose.{{ environment_name }}.yml`
-          
-          ## Verification
-          
-          ```bash
-          # Check configuration and Git identity
-          nifi_check_config
-          
-          # Run full verification
-          ~/verify-setup.sh
-          
-          # Test the git hook
-          ~/test-git-hook.sh
-          ```
-          
-          ## Deploy NiFi
-          
-          ```bash
-          cd ~/nificicd-g1p2
-          docker compose -f compose.{{ environment_name }}.yml --env-file .env.{{ environment_name }} up -d
-          docker compose -f compose.{{ environment_name }}.yml logs -f
-          ```
-          
-          ## Making Changes
-          
-          1. **Configure your identity** (if not done): `~/setup-my-identity.sh`
-          2. Make changes in NiFi UI
-          3. NiFi Registry commits to local git automatically
-          4. Post-commit hook triggers GitHub Actions
-          5. GitHub creates PR with YOUR name
-          6. Team reviews and merges
-          7. Automatic deployment
-          
-          ## Manual Workflow Triggers
-          
-          ```bash
-          nifi_trigger_workflow "Your message"
-          nifi_gh_trigger_workflow "Your message"
-          ```
-          
-          ## Useful Commands
-          
-          - `~/setup-my-identity.sh` - **Configure your Git identity (REQUIRED)**
-          - `nifi_check_config` - Check configuration status
-          - `~/verify-setup.sh` - Run setup verification
-          - `~/test-git-hook.sh` - Test git hook functionality
-          - `gh run list` - View workflow runs
+        - name: backup-nifi.sh
+          content: |
+            #!/bin/bash
+            BACKUP_DIR="/home/{{ nifi_user }}/backups/{{ environment_name }}"
+            TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+            BACKUP_FILE="$BACKUP_DIR/nifi-backup-$TIMESTAMP.tar.gz"
+            
+            echo "Creating NiFi backup..."
+            
+            # Create backup
+            tar -czf "$BACKUP_FILE" \
+              -C "{{ nifi_home }}" flows/ registry_data/ .env.{{ environment_name }} 2>/dev/null
+            
+            if [ $? -ne 0 ]; then
+              echo "ERROR: Backup creation failed"
+              exit 1
+            fi
+            
+            # Verify backup integrity
+            tar -tzf "$BACKUP_FILE" >/dev/null 2>&1
+            
+            if [ $? -eq 0 ]; then
+              SIZE=$(du -h "$BACKUP_FILE" | cut -f1)
+              echo "✓ Backup created and verified: $BACKUP_FILE ($SIZE)"
+              echo "$TIMESTAMP: Backup verified ($SIZE)" >> "$BACKUP_DIR/backup.log"
+            else
+              echo "✗ Backup verification FAILED: $BACKUP_FILE"
+              echo "$TIMESTAMP: Backup verification FAILED" >> "$BACKUP_DIR/backup.log"
+              rm -f "$BACKUP_FILE"
+              exit 1
+            fi
+            
+            # Retention policy: Keep last 7 days daily, then weekly for 30 days
+            find "$BACKUP_DIR" -name "nifi-backup-*.tar.gz" -mtime +7 -mtime -30 \
+              ! -name "*01.tar.gz" ! -name "*08.tar.gz" ! -name "*15.tar.gz" ! -name "*22.tar.gz" \
+              -delete 2>/dev/null
+            
+            # Delete backups older than 30 days
+            find "$BACKUP_DIR" -name "nifi-backup-*.tar.gz" -mtime +30 -delete 2>/dev/null
+            
+            echo ""
+            echo "Backup retention:"
+            ls -lht "$BACKUP_DIR"/*.tar.gz 2>/dev/null | head -5
 
-    # =======================
-    # SYSTEM LIMITS FOR NIFI
-    # =======================
-    - name: Configure system limits for NiFi
-      pam_limits:
-        domain: "{{ nifi_user }}"
-        limit_type: "{{ item.type }}"
-        limit_item: "{{ item.item }}"
-        value: "{{ item.value }}"
-      loop:
-        - { type: 'soft', item: 'nofile', value: '65536' }
-        - { type: 'hard', item: 'nofile', value: '65536' }
-        - { type: 'soft', item: 'nproc', value: '10000' }
-        - { type: 'hard', item: 'nproc', value: '10000' }
+        - name: recover-from-backup.sh
+          content: |
+            #!/bin/bash
+            BACKUP_DIR="/home/{{ nifi_user }}/backups/{{ environment_name }}"
+            NIFI_HOME="{{ nifi_home }}"
+            
+            echo "========================================"
+            echo "  NiFi Backup Recovery"
+            echo "========================================"
+            echo ""
+            
+            if [ ! -d "$BACKUP_DIR" ] || [ -z "$(ls -A "$BACKUP_DIR"/*.tar.gz 2>/dev/null)" ]; then
+              echo "No backups found in $BACKUP_DIR"
+              exit 1
+            fi
+            
+            echo "Available backups:"
+            ls -lht "$BACKUP_DIR"/*.tar.gz | nl
+            echo ""
+            
+            read -p "Enter backup filename to restore: " BACKUP_FILE
+            
+            if [ ! -f "$BACKUP_DIR/$BACKUP_FILE" ]; then
+              echo "Backup not found: $BACKUP_DIR/$BACKUP_FILE"
+              exit 1
+            fi
+            
+            echo ""
+            echo "WARNING: This will replace current NiFi data!"
+            read -p "Continue? (yes/NO): " CONFIRM
+            
+            if [ "$CONFIRM" != "yes" ]; then
+              echo "Recovery cancelled"
+              exit 0
+            fi
+            
+            echo ""
+            echo "Stopping NiFi containers..."
+            cd "$NIFI_HOME"
+            docker compose -f compose.{{ environment_name }}.yml down
+            
+            echo "Creating pre-recovery backup..."
+            RECOVERY_BACKUP="$BACKUP_DIR/pre-recovery-$(date +%Y%m%d_%H%M%S).tar.gz"
+            tar -czf "$RECOVERY_BACKUP" -C "$NIFI_HOME" flows/ registry_data/ 2>/dev/null || true
+            
+            echo "Restoring backup: $BACKUP_FILE"
+            tar -xzf "$BACKUP_DIR/$BACKUP_FILE" -C "$NIFI_HOME"
+            
+            if [ $? -eq 0 ]; then
+              echo "✓ Backup restored successfully"
+              echo ""
+              echo "Starting NiFi containers..."
+              docker compose -f compose.{{ environment_name }}.yml up -d
+              echo ""
+              echo "Recovery complete!"
+              echo "Monitor logs: docker compose -f compose.{{ environment_name }}.yml logs -f"
+            else
+              echo "✗ Recovery failed"
+              exit 1
+            fi
 
-    # ==================
-    # AUTOMATED CLEANUP
-    # ==================
-    - name: Set up cron job for backup cleanup
-      cron:
-        name: "Cleanup old {{ environment_name }} backups"
-        minute: "0"
-        hour: "2"
-        job: "find /home/{{ nifi_user }}/backups/{{ environment_name }} -type d -mtime +30 -exec rm -rf {} + 2>/dev/null || true"
-        user: "{{ nifi_user }}"
+        - name: maintenance-report.sh
+          content: |
+            #!/bin/bash
+            NIFI_HOME="{{ nifi_home }}"
+            BACKUP_DIR="/home/{{ nifi_user }}/backups/{{ environment_name }}"
+            
+            cat <<EOF
+            ================================================
+            NiFi CI/CD Maintenance Report
+            ================================================
+            Generated: $(date)
+            Environment: {{ environment_name }}
+            Hostname: $(hostname)
+            
+            SYSTEM RESOURCES
+            ================================================
+            Disk Usage (NiFi Home): $(df -h "$NIFI_HOME" | awk 'NR==2 {print $5 " used of " $2}')
+            Memory Usage: $(free -h | awk 'NR==2 {print $3 " / " $2}')
+            CPU Load: $(uptime | awk -F'load average:' '{print $2}')
+            
+            DOCKER STATUS
+            ================================================
+            Images: $(docker images | wc -l) total
+            Running Containers: $(docker ps --filter name=nifi | wc -l)
+            Container Status:
+            $(docker ps --filter name=nifi --format "  - {{.Names}}: {{.Status}}")
+            
+            GIT STATUS
+            ================================================
+            Branch: $(cd "$NIFI_HOME" && git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "N/A")
+            Last 5 Commits:
+            $(cd "$NIFI_HOME" && git log --oneline -5 2>/dev/null | sed 's/^/  /')
+            
+            BACKUP STATUS
+            ================================================
+            Backup Directory: $BACKUP_DIR
+            Total Backups: $(ls "$BACKUP_DIR"/*.tar.gz 2>/dev/null | wc -l)
+            Latest Backup: $(ls -t "$BACKUP_DIR"/*.tar.gz 2>/dev/null | head -1 | xargs basename)
+            Backup Size: $(du -sh "$BACKUP_DIR" 2>/dev/null | cut -f1)
+            
+            SECURITY STATUS
+            ================================================
+            GitHub PAT: $([ -n "$GITHUB_PAT" ] && echo "✓ Configured" || echo "✗ Missing")
+            Git Hook: $([ -x "$NIFI_HOME/.git/hooks/post-commit" ] && echo "✓ Active" || echo "✗ Inactive")
+            Git Identity: $(git config --global user.name 2>/dev/null || echo "Not configured")
+            
+            RECOMMENDATIONS
+            ================================================
+            - Review and rotate GitHub PAT every 90 days
+            - Verify backup integrity monthly
+            - Update Docker images quarterly
+            - Monitor disk usage weekly
+            - Review git commits for proper attribution
+            
+            EOF
 
-    # =============
-    # VERIFICATION
-    # =============
-    - name: Verify installations
-      command: "{{ item }} --version"
-      register: version_check
-      changed_when: false
-      failed_when: false
-      loop:
-        - git
-        - docker
-        - jq
-        - gh
-
-    - name: Run setup verification
-      become_user: "{{ nifi_user }}"
-      command: /home/{{ nifi_user }}/verify-setup.sh
-      register: verification_output
-      changed_when: false
-
-    # ==============
-    # FINAL MESSAGE
-    # ==============
-    - name: Display setup summary
-      debug:
-        msg:
-          - "=========================================="
-          - "  VM Configuration Complete"
-          - "=========================================="
-          - "Environment: {{ environment_name }}"
-          - ""
-          - "⚠️  IMPORTANT NEXT STEP:"
-          - "  Each developer must configure their Git identity!"
-          - "  SSH to VM and run: ~/setup-my-identity.sh"
-          - ""
-          - "Quick Start:"
-          - "  1. ~/setup-my-identity.sh  (REQUIRED)"
-          - "  2. nifi_check_config"
-          - "  3. cd ~/nificicd-g1p2"
-          - "  4. docker compose -f compose.{{ environment_name }}.yml up -d"
-          - ""
-          - "Monitor: https://github.com/{{ github_repo }}/actions"
-          - "=========================================="
-        
-  handlers:
-    - name: Restart Docker
-      systemd:
-        name: docker
-        state: restarted
-        daemon_reload: yes
+        - name: integration-test.sh
+          content: |
+            #!/bin/bash
+            NIFI_HOME="{{ nifi_home }}"
+            ERRORS=0
+            
+            echo "========================================"
+            echo "  NiFi CI/CD Integration Tests"
+            echo "========================================"
+            echo ""
+            
+            # Test 1: Docker accessibility
+            echo -n "Test 1: Docker accessible... "
+            if docker ps >/dev/null 2>&1; then
+              echo "✓ PASS"
+            else
+              echo "✗ FAIL"
+              ERRORS=$((ERRORS + 1))
+            fi
+            
+            # Test 2: Git hook installed
+            echo -n "Test 2: Git hook installed... "
+            if [ -x "$NIFI_HOME/.git/hooks/post-commit" ]; then
+              echo "✓ PASS"
+            else
+              echo "✗ FAIL"
+              ERRORS=$((ERRORS + 1))
+            fi
+            
+            # Test 3: Environment variables
+            echo -n "Test 3: Environment configured... "
+            source ~/.nifi_cicd_env 2>/dev/null
+            if [ -n "$GITHUB_REPO" ] && [ -n "$GITHUB_PAT" ]; then
+              echo "✓ PASS"
+            else
+              echo "✗ FAIL"
+              ERRORS=$((ERRORS + 1))
+            fi
+            
+            # Test 4: GitHub API connectivity
+            echo -n "Test 4: GitHub API accessible... "
+            if curl -s -H "Authorization: token $GITHUB_PAT" \
+              "https://api.github.com/rate_limit" | jq -e '.rate.remaining > 0' >/dev/null 2>&1; then
+              echo "✓ PASS"
+            else
+              echo "✗ FAIL"
+              ERRORS=$((ERRORS + 1))
+            fi
+            
+            # Test 5: NiFi ports available
+            echo -n "Test 5: NiFi port {{ nifi_https_port }} available... "
+            if ! netstat -tuln 2>/dev/null | grep -q ":{{ nifi_https_port }}"; then
+              echo "✓ PASS"
+            else
+              echo "⚠ WARNING (port in use)"
+            fi
+            
+            # Test 6: Git identity configured
+            echo -n "Test 6: Git identity configured... "
+            if [ -n "$(git config --global user.name)" ] && [ -n "$(git config --global user.email)" ]; then
+              echo "✓ PASS"
+            else
+              echo "⚠ WARNING (run ~/setup-my-identity.sh)"
+            fi
+            
+            # Test 7: Backup directory writable
+            echo -n "Test 7: Backup directory writable... "
+            if [ -w "/home/{{ nifi_user }}/backups/{{ environment_name }}" ]; then
+              echo "✓ PASS"
+            else
+              echo "✗ FAIL"
+              ERRORS=$((ERRORS + 1))
+            fi
+            
+            echo ""
+            if [ $ERRORS -eq 0 ]; then
+              echo "========================================="
+              echo "  All tests passed! ✓"
+              echo "========================================="
+              exit 0
+            else
+              echo "========================================="
+              echo "  $ERRORS test(s) failed"
+              echo "========================================="
+              exit 1
+            fi
