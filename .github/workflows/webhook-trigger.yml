@@ -229,7 +229,7 @@ jobs:
           
           # Check for and resolve conflicts
           if git diff --name-only --diff-filter=U | grep -q .; then
-            echo "Conflicts detected. Attempting auto-resolution..."
+            echo "⚠️  Conflicts detected. Attempting auto-resolution..."
             git diff --name-only --diff-filter=U | while read file; do
               git checkout --theirs "$file"
               git add "$file"
@@ -337,7 +337,7 @@ jobs:
 
           # Build PR body with prominent developer attribution
           if [ "$IS_FEATURE_BRANCH" = "true" ]; then
-            PR_BODY="## Developer: **$AUTHOR_NAME**
+            PR_BODY="## 👤 Developer: **$AUTHOR_NAME**
           $([ -n "$GITHUB_USER" ] && echo "**GitHub:** @$GITHUB_USER" || echo "**Email:** $AUTHOR_EMAIL")
 
           ## Feature Branch VM Sync
@@ -346,16 +346,16 @@ jobs:
           **Target Branch:** \`$TARGET_BRANCH\`  
           **Environment:** \`$ENV\`
 
-          ### Commit Details
+          ### 📝 Commit Details
           - **Author:** $REAL_AUTHOR
           - **VM Commit:** \`${VM_COMMIT}\`
           - **VM Hostname:** ${VM_HOSTNAME}
           - **Message:** $COMMIT_MSG
 
-          ### Changes
+          ### 📦 Changes
           This PR contains NiFi flow and registry changes from the **$SOURCE_BRANCH** feature branch on the **$ENV** VM.
 
-          ### After Merging
+          ### 🚀 After Merging
           - Changes will be merged to \`$TARGET_BRANCH\`
           - Deployment workflow will trigger automatically
           - NiFi will be updated in $ENV environment
@@ -363,7 +363,7 @@ jobs:
           ---
           *Authored by: $AUTHOR_NAME | Automated sync - Workflow run [#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})*"
           else
-            PR_BODY="## Developer: **$AUTHOR_NAME**
+            PR_BODY="## 👤 Developer: **$AUTHOR_NAME**
           $([ -n "$GITHUB_USER" ] && echo "**GitHub:** @$GITHUB_USER" || echo "**Email:** $AUTHOR_EMAIL")
 
           ## VM Registry Sync
@@ -371,16 +371,16 @@ jobs:
           **Environment:** \`$ENV\`  
           **Target Branch:** \`$TARGET_BRANCH\`
 
-          ### Commit Details
+          ### 📝 Commit Details
           - **Author:** $REAL_AUTHOR
           - **VM Commit:** \`${VM_COMMIT}\`
           - **VM Hostname:** ${VM_HOSTNAME}
           - **Message:** $COMMIT_MSG
 
-          ### Changes
+          ### 📦 Changes
           This PR contains NiFi flow and registry changes synced from the **$ENV** VM.
 
-          ### After Merging
+          ### 🚀 After Merging
           - Changes will be merged to \`$TARGET_BRANCH\`
           - Deployment workflow will trigger automatically
           - NiFi will be updated in $ENV environment
@@ -475,9 +475,9 @@ jobs:
           AUTHOR_NAME="${{ steps.commit_changes.outputs.author_name }}"
 
           echo ""
-          echo "╔═════════════════════════════════╗"
-          echo "║  VM Sync Complete (PR Created)  ║"
-          echo "╚═════════════════════════════════╝"
+          echo "╔════════════════════════════════════════╗"
+          echo "║  VM Sync Complete (PR Created)         ║"
+          echo "╚════════════════════════════════════════╝"
           echo ""
           
           if [ "$IS_FEATURE_BRANCH" = "true" ]; then
