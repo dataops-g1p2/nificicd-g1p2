@@ -129,16 +129,16 @@ jobs:
           
           # Create README with identity setup instructions
           cat > "${ENV}-access/README.txt" <<EOF
-          ======================================
-           NiFi VM Access - ${ENV} Environment
-          ======================================
+          ===============================================================================
+                              NiFi VM Access - ${ENV} Environment
+          ===============================================================================
 
           VM INFORMATION:
             IP Address: ${VM_IP}
             Username: ${USERNAME}
             SSH Key: ${ENV}-key.pem
 
-          ⚠️ CRITICAL FIRST STEP ⚠️
+          ⚠️⚠️⚠️  CRITICAL FIRST STEP  ⚠️⚠️⚠️
           
           After connecting to the VM for the FIRST TIME, you MUST run:
           
@@ -154,15 +154,15 @@ jobs:
           
           This is REQUIRED before making any commits!
           
-          =================================================
+          ===============================================================================
 
           PLATFORM-SPECIFIC INSTRUCTIONS:
             * Windows: Use connect.bat or PowerShell script
             * macOS/Linux: Use connect.sh
 
-          ==================================
-                     WINDOWS USERS
-          ==================================
+          ===============================================================================
+                                        WINDOWS USERS
+          ===============================================================================
 
             Option 1 - Command Prompt (Easiest):
               1. Double-click: connect.bat
@@ -189,9 +189,9 @@ jobs:
               4. Connection -> SSH -> Auth -> Browse to .ppk file
               5. Click Open
 
-          ==================================
-                     macOS USERS
-          ==================================
+          ===============================================================================
+                                        macOS USERS
+          ===============================================================================
 
             Option 1 - Terminal (Recommended):
               1. Open Terminal
@@ -203,9 +203,9 @@ jobs:
               2. Run: chmod 600 ${ENV}-key.pem
               3. Run: ssh -i ${ENV}-key.pem ${USERNAME}@${VM_IP}
 
-          ==================================
-                     LINUX USERS
-          ==================================
+          ===============================================================================
+                                        LINUX USERS
+          ===============================================================================
 
             Option 1 - Terminal (Recommended):
               1. Open Terminal
@@ -217,7 +217,7 @@ jobs:
               2. Run: chmod 600 ${ENV}-key.pem
               3. Run: ssh -i ${ENV}-key.pem ${USERNAME}@${VM_IP}
 
-          =======================================
+          ===============================================================================
 
           FIRST TIME SETUP (AFTER CONNECTING):
             
@@ -287,7 +287,7 @@ jobs:
             * Use encrypted channels only
             * Delete keys when no longer needed
 
-          ==============================================
+          ===============================================================================
           For detailed commands, see QUICK-REFERENCE.txt
           EOF
           
@@ -301,9 +301,9 @@ jobs:
           USERNAME="USER_PLACEHOLDER"
           KEY="ENV_PLACEHOLDER-key.pem"
 
-          echo "==========================="
-          echo "  Connecting to ${ENV} VM  "
-          echo "==========================="
+          echo "====================================================="
+          echo "  Connecting to ${ENV} VM                            "
+          echo "====================================================="
           echo ""
 
           if [ ! -f "$KEY" ]; then
@@ -317,7 +317,7 @@ jobs:
 
           echo "Connecting to ${USERNAME}@${VM_IP}..."
           echo ""
-          echo "AFTER CONNECTING, RUN: ~/setup-my-identity.sh"
+          echo "⚠️  AFTER CONNECTING, RUN: ~/setup-my-identity.sh"
           echo ""
           
           ssh -i "$KEY" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "${USERNAME}@${VM_IP}"
@@ -338,9 +338,9 @@ jobs:
           set USERNAME=USER_PLACEHOLDER
           set KEY=ENV_PLACEHOLDER-key.pem
 
-          echo "==========================="
-          echo "  Connecting to %ENV% VM   "
-          echo "==========================="
+          echo "====================================================="
+          echo "  Connecting to %ENV% VM                             "
+          echo "====================================================="
           echo.
 
           if not exist "%KEY%" (
@@ -386,9 +386,9 @@ jobs:
           $USERNAME = "USER_PLACEHOLDER"
           $KEY = "ENV_PLACEHOLDER-key.pem"
 
-          Write-Host "===============================" -ForegroundColor Cyan
-          Write-Host "  Connecting to $ENV_NAME VM   " -ForegroundColor Cyan
-          Write-Host "===============================" -ForegroundColor Cyan
+          Write-Host "=====================================================" -ForegroundColor Cyan
+          Write-Host "  Connecting to $ENV_NAME VM                         " -ForegroundColor Cyan
+          Write-Host "=====================================================" -ForegroundColor Cyan
           Write-Host ""
 
           if (-not (Test-Path $KEY)) {
@@ -429,16 +429,16 @@ jobs:
           
           # Create Quick Reference
           cat > "${ENV}-access/QUICK-REFERENCE.txt" <<EOF
-          ==================================
-              QUICK REFERENCE - ${ENV}
-          ==================================
+          ===============================================================================
+                                  QUICK REFERENCE - ${ENV}
+          ===============================================================================
 
           CONNECT:
             Windows:  connect.bat  or  .\connect.ps1  or  wsl ./connect.sh
             Mac/Linux:  ./connect.sh
             Manual:  ssh -i ${ENV}-key.pem ${USERNAME}@${VM_IP}
 
-          FIRST TIME SETUP (REQUIRED):
+          ⚠️  FIRST TIME SETUP (REQUIRED):
             ~/setup-my-identity.sh
 
           ON THE VM:
@@ -509,6 +509,8 @@ jobs:
             Check VM is running in Azure Portal
             Verify firewall allows your IP
             Check network connectivity
+
+          ==================================================================
           EOF
           
           echo "Access package created for ${ENV}"
@@ -548,16 +550,16 @@ jobs:
           USERNAME="${{ secrets.VM_USERNAME }}"
           
           echo ""
-          echo "=================================="
-          echo "  ${ENV} VM Access Package Ready  "
-          echo "=================================="
+          echo "================================================"
+          echo "  ${ENV} VM Access Package Ready                "
+          echo "================================================"
           echo ""
           echo "Download: ${ENV}-vm-access.zip (from Artifacts)"
           echo ""
           echo "VM: ${USERNAME}@${VM_IP}"
           echo "Key: ${ENV}-key.pem"
           echo ""
-          echo "CRITICAL: After connecting, run:"
+          echo "⚠️  CRITICAL: After connecting, run:"
           echo "    ~/setup-my-identity.sh"
           echo ""
           echo "This ensures commits are attributed to YOU!"
@@ -582,7 +584,7 @@ jobs:
           echo "DOWNLOAD:"
           echo "  Actions -> This Run -> Artifacts"
           echo ""
-          echo "⚠️ CRITICAL INSTRUCTIONS ⚠️"
+          echo "⚠️⚠️⚠️  CRITICAL INSTRUCTIONS  ⚠️⚠️⚠️"
           echo ""
           echo "Each developer MUST configure their Git identity"
           echo "BEFORE making any commits!"
@@ -591,7 +593,7 @@ jobs:
           echo "  1. Download and extract zip"
           echo "  2. Windows: Double-click connect.bat"
           echo "     Mac/Linux: Run ./connect.sh"
-          echo "  3. REQUIRED: ~/setup-my-identity.sh"
+          echo "  3. ⚠️  REQUIRED: ~/setup-my-identity.sh"
           echo "  4. Verify: nifi_check_config"
           echo ""
           echo "WHY THIS MATTERS:"
