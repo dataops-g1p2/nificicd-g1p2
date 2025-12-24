@@ -49,8 +49,8 @@ trap "rm -f '$LOCK_FILE'" EXIT
 CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "develop")
 log_info "Current branch: $CURRENT_BRANCH"
 
-if [[ "$CURRENT_BRANCH" == feature/* ]] || [[ "$CURRENT_BRANCH" == hotfix/* ]] || [[ "$CURRENT_BRANCH" == bugfix/* ]]; then
-    log_info "Feature/hotfix/bugfix branch detected - PR will target 'develop'"
+if [[ "$CURRENT_BRANCH" == feature/* ]] || [[ "$CURRENT_BRANCH" == bugfix/* ]]; then
+    log_info "Feature/bugfix branch detected - PR will target 'develop'"
     IS_FEATURE_BRANCH="true"
 else
     IS_FEATURE_BRANCH="false"
