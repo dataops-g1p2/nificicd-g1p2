@@ -571,12 +571,12 @@ import-flow:
 		echo "Usage: make import-flow FLOW=<flow-name> ENV=<env>"; \
 		echo ""; \
 		echo "Available flows:"; \
-		ls -1 flows/*.json 2>/dev/null | xargs -n1 basename | sed 's/\.json$//' | sed 's/^/  - /' || echo "  (none)"; \
+		ls -1 flows/*.json 2>/dev/null | xargs -n1 basename | sed 's/\.json$$//' | sed 's/^/  - /' || echo "  (none)"; \
 		exit 1; \
 	fi
 	@echo ""
 	@echo "Importing flow: $(FLOW) to $(WORKSPACE)"
-	@export $(cat $(ENV_FILE) | grep -v '^#' | xargs) && \
+	@set -a && . ./$(ENV_FILE) && set +a && \
 	export FLOW_NAME="$(FLOW)" && \
 	bash scripts/auto_import_flows.sh
 
@@ -588,7 +588,7 @@ import-flows-pattern:
 		exit 1; \
 	fi
 	@echo "Importing flows matching: $(PATTERN) to $(WORKSPACE)"
-	@export $(cat $(ENV_FILE) | grep -v '^#' | xargs) && \
+	@set -a && . ./$(ENV_FILE) && set +a && \
 	export FLOW_PATTERN="$(PATTERN)" && \
 	bash scripts/auto_import_flows.sh
 
